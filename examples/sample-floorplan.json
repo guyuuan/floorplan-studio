@@ -1,0 +1,776 @@
+{
+  "schemaVersion": 1,
+  "name": "示例户型",
+  "calibrated": true,
+  "plan": {
+    "units": "mm",
+    "boundary": [
+      [
+        0,
+        0
+      ],
+      [
+        12000,
+        0
+      ],
+      [
+        12000,
+        9000
+      ],
+      [
+        0,
+        9000
+      ]
+    ],
+    "walls": [
+      {
+        "id": "ext_n",
+        "a": [
+          120,
+          120
+        ],
+        "b": [
+          11880,
+          120
+        ],
+        "kind": "exterior",
+        "thickness": 240,
+        "height": 2800,
+        "reviewed": false
+      },
+      {
+        "id": "ext_e",
+        "a": [
+          11880,
+          120
+        ],
+        "b": [
+          11880,
+          8880
+        ],
+        "kind": "exterior",
+        "thickness": 240,
+        "height": 2800,
+        "reviewed": false
+      },
+      {
+        "id": "ext_s",
+        "a": [
+          11880,
+          8880
+        ],
+        "b": [
+          120,
+          8880
+        ],
+        "kind": "exterior",
+        "thickness": 240,
+        "height": 2800,
+        "reviewed": false
+      },
+      {
+        "id": "ext_w",
+        "a": [
+          120,
+          8880
+        ],
+        "b": [
+          120,
+          120
+        ],
+        "kind": "exterior",
+        "thickness": 240,
+        "height": 2800,
+        "reviewed": false
+      },
+      {
+        "id": "bedroom_wall",
+        "a": [
+          4400,
+          240
+        ],
+        "b": [
+          4400,
+          4500
+        ],
+        "kind": "bearing",
+        "thickness": 200,
+        "height": 2800,
+        "reviewed": false
+      },
+      {
+        "id": "middle",
+        "a": [
+          240,
+          4500
+        ],
+        "b": [
+          11760,
+          4500
+        ],
+        "kind": "partition",
+        "thickness": 120,
+        "height": 2800,
+        "reviewed": false
+      },
+      {
+        "id": "bath_wall",
+        "a": [
+          7800,
+          240
+        ],
+        "b": [
+          7800,
+          4500
+        ],
+        "kind": "partition",
+        "thickness": 120,
+        "height": 2800,
+        "reviewed": false
+      },
+      {
+        "id": "kitchen_wall",
+        "a": [
+          8000,
+          4500
+        ],
+        "b": [
+          8000,
+          8760
+        ],
+        "kind": "partition",
+        "thickness": 120,
+        "height": 2800,
+        "reviewed": false
+      }
+    ],
+    "openings": [
+      {
+        "id": "win_bed",
+        "wallId": "ext_n",
+        "kind": "window",
+        "offset": 1000,
+        "width": 2400,
+        "height": 1500,
+        "sill": 800,
+        "swing": "left"
+      },
+      {
+        "id": "win_study",
+        "wallId": "ext_n",
+        "kind": "window",
+        "offset": 4900,
+        "width": 1800,
+        "height": 1500,
+        "sill": 800,
+        "swing": "left"
+      },
+      {
+        "id": "win_bath",
+        "wallId": "ext_e",
+        "kind": "window",
+        "offset": 1300,
+        "width": 1200,
+        "height": 1000,
+        "sill": 1400,
+        "swing": "left"
+      },
+      {
+        "id": "win_living",
+        "wallId": "ext_s",
+        "kind": "window",
+        "offset": 4400,
+        "width": 4200,
+        "height": 2100,
+        "sill": 300,
+        "swing": "left"
+      },
+      {
+        "id": "entry",
+        "wallId": "ext_w",
+        "kind": "door",
+        "offset": 700,
+        "width": 1000,
+        "height": 2200,
+        "sill": 0,
+        "swing": "left"
+      },
+      {
+        "id": "bed_door",
+        "wallId": "middle",
+        "kind": "door",
+        "offset": 3100,
+        "width": 900,
+        "height": 2100,
+        "sill": 0,
+        "swing": "left"
+      },
+      {
+        "id": "study_door",
+        "wallId": "middle",
+        "kind": "door",
+        "offset": 5900,
+        "width": 900,
+        "height": 2100,
+        "sill": 0,
+        "swing": "right"
+      },
+      {
+        "id": "bath_door",
+        "wallId": "middle",
+        "kind": "door",
+        "offset": 8200,
+        "width": 800,
+        "height": 2100,
+        "sill": 0,
+        "swing": "left"
+      },
+      {
+        "id": "kitchen_door",
+        "wallId": "kitchen_wall",
+        "kind": "door",
+        "offset": 1200,
+        "width": 1500,
+        "height": 2200,
+        "sill": 0,
+        "swing": "right"
+      }
+    ],
+    "rooms": [
+      {
+        "id": "room_0_2270_2340",
+        "name": "主卧",
+        "material": "oak",
+        "polygon": [
+          [
+            240,
+            240
+          ],
+          [
+            4300,
+            240
+          ],
+          [
+            4300,
+            4440
+          ],
+          [
+            240,
+            4440
+          ],
+          [
+            240,
+            240
+          ]
+        ],
+        "holes": []
+      },
+      {
+        "id": "room_2_6120_2340",
+        "name": "书房",
+        "material": "oak",
+        "polygon": [
+          [
+            4500,
+            240
+          ],
+          [
+            7740,
+            240
+          ],
+          [
+            7740,
+            4440
+          ],
+          [
+            4500,
+            4440
+          ],
+          [
+            4500,
+            240
+          ]
+        ],
+        "holes": []
+      },
+      {
+        "id": "room_3_9810_2340",
+        "name": "卫浴",
+        "material": "tile",
+        "polygon": [
+          [
+            7860,
+            240
+          ],
+          [
+            11760,
+            240
+          ],
+          [
+            11760,
+            4440
+          ],
+          [
+            7860,
+            4440
+          ],
+          [
+            7860,
+            240
+          ]
+        ],
+        "holes": []
+      },
+      {
+        "id": "room_1_4090_6661",
+        "name": "客餐厅",
+        "material": "oak",
+        "polygon": [
+          [
+            240,
+            4560
+          ],
+          [
+            4300,
+            4560
+          ],
+          [
+            4300,
+            4600
+          ],
+          [
+            4500,
+            4600
+          ],
+          [
+            4500,
+            4560
+          ],
+          [
+            7940,
+            4560
+          ],
+          [
+            7940,
+            8760
+          ],
+          [
+            240,
+            8760
+          ],
+          [
+            240,
+            4560
+          ]
+        ],
+        "holes": []
+      },
+      {
+        "id": "room_4_9910_6660",
+        "name": "厨房",
+        "material": "tile",
+        "polygon": [
+          [
+            8060,
+            4560
+          ],
+          [
+            11760,
+            4560
+          ],
+          [
+            11760,
+            8760
+          ],
+          [
+            8060,
+            8760
+          ],
+          [
+            8060,
+            4560
+          ]
+        ],
+        "holes": []
+      }
+    ],
+    "furniture": [
+      {
+        "type": "bed",
+        "name": "双人床",
+        "category": "卧室",
+        "width": 1800,
+        "depth": 2100,
+        "height": 950,
+        "color": "#d3c8b7",
+        "id": "demo_0",
+        "position": [
+          2100,
+          1700
+        ],
+        "rotation": 0
+      },
+      {
+        "type": "nightstand",
+        "name": "床头柜",
+        "category": "卧室",
+        "width": 450,
+        "depth": 400,
+        "height": 500,
+        "color": "#bca07e",
+        "id": "demo_1",
+        "position": [
+          850,
+          1400
+        ],
+        "rotation": 0
+      },
+      {
+        "type": "nightstand",
+        "name": "床头柜",
+        "category": "卧室",
+        "width": 450,
+        "depth": 400,
+        "height": 500,
+        "color": "#bca07e",
+        "id": "demo_2",
+        "position": [
+          3350,
+          1400
+        ],
+        "rotation": 0
+      },
+      {
+        "type": "wardrobe",
+        "name": "衣柜",
+        "category": "卧室",
+        "width": 2000,
+        "depth": 600,
+        "height": 2400,
+        "color": "#c7b89f",
+        "id": "demo_3",
+        "position": [
+          2000,
+          3900
+        ],
+        "rotation": 0
+      },
+      {
+        "type": "desk",
+        "name": "书桌",
+        "category": "书房",
+        "width": 1400,
+        "depth": 650,
+        "height": 750,
+        "color": "#bca17d",
+        "id": "demo_4",
+        "position": [
+          6100,
+          900
+        ],
+        "rotation": 0
+      },
+      {
+        "type": "officechair",
+        "name": "办公椅",
+        "category": "书房",
+        "width": 650,
+        "depth": 650,
+        "height": 1000,
+        "color": "#858f83",
+        "id": "demo_5",
+        "position": [
+          6100,
+          1600
+        ],
+        "rotation": 0
+      },
+      {
+        "type": "bookshelf",
+        "name": "书架",
+        "category": "书房",
+        "width": 1200,
+        "depth": 350,
+        "height": 2000,
+        "color": "#b49974",
+        "id": "demo_6",
+        "position": [
+          5300,
+          4000
+        ],
+        "rotation": 0
+      },
+      {
+        "type": "plant",
+        "name": "大型绿植",
+        "category": "客厅",
+        "width": 500,
+        "depth": 500,
+        "height": 1300,
+        "color": "#6f8b60",
+        "id": "demo_7",
+        "position": [
+          7300,
+          700
+        ],
+        "rotation": 0
+      },
+      {
+        "type": "vanity",
+        "name": "洗手台",
+        "category": "卫浴",
+        "width": 900,
+        "depth": 500,
+        "height": 850,
+        "color": "#c9c6b8",
+        "id": "demo_8",
+        "position": [
+          10400,
+          750
+        ],
+        "rotation": 0
+      },
+      {
+        "type": "toilet",
+        "name": "坐便器",
+        "category": "卫浴",
+        "width": 420,
+        "depth": 700,
+        "height": 760,
+        "color": "#ebe9e0",
+        "id": "demo_9",
+        "position": [
+          11000,
+          2000
+        ],
+        "rotation": 0
+      },
+      {
+        "type": "shower",
+        "name": "淋浴间",
+        "category": "卫浴",
+        "width": 900,
+        "depth": 900,
+        "height": 2100,
+        "color": "#c6d7d0",
+        "id": "demo_10",
+        "position": [
+          8500,
+          1000
+        ],
+        "rotation": 0
+      },
+      {
+        "type": "rug",
+        "name": "地毯",
+        "category": "客厅",
+        "width": 2800,
+        "depth": 2000,
+        "height": 20,
+        "color": "#d6cbbc",
+        "id": "demo_11",
+        "position": [
+          3800,
+          7000
+        ],
+        "rotation": 0
+      },
+      {
+        "type": "sofa",
+        "name": "三人沙发",
+        "category": "客厅",
+        "width": 2400,
+        "depth": 900,
+        "height": 820,
+        "color": "#c4c0ad",
+        "id": "demo_12",
+        "position": [
+          3700,
+          8000
+        ],
+        "rotation": 0
+      },
+      {
+        "type": "coffee",
+        "name": "长茶几",
+        "category": "客厅",
+        "width": 1200,
+        "depth": 600,
+        "height": 380,
+        "color": "#a77d53",
+        "id": "demo_13",
+        "position": [
+          3700,
+          6900
+        ],
+        "rotation": 0
+      },
+      {
+        "type": "tv",
+        "name": "电视柜",
+        "category": "客厅",
+        "width": 2000,
+        "depth": 400,
+        "height": 450,
+        "color": "#c2aa88",
+        "id": "demo_14",
+        "position": [
+          3600,
+          5000
+        ],
+        "rotation": 0
+      },
+      {
+        "type": "armchair",
+        "name": "单人椅",
+        "category": "客厅",
+        "width": 800,
+        "depth": 800,
+        "height": 850,
+        "color": "#b89c7f",
+        "id": "demo_15",
+        "position": [
+          6000,
+          7200
+        ],
+        "rotation": 270
+      },
+      {
+        "type": "plant",
+        "name": "大型绿植",
+        "category": "客厅",
+        "width": 500,
+        "depth": 500,
+        "height": 1300,
+        "color": "#6f8b60",
+        "id": "demo_16",
+        "position": [
+          700,
+          8300
+        ],
+        "rotation": 0
+      },
+      {
+        "type": "dining",
+        "name": "餐桌",
+        "category": "餐厨",
+        "width": 1600,
+        "depth": 850,
+        "height": 750,
+        "color": "#b99972",
+        "id": "demo_17",
+        "position": [
+          10300,
+          6600
+        ],
+        "rotation": 90
+      },
+      {
+        "type": "chair",
+        "name": "餐椅",
+        "category": "餐厨",
+        "width": 450,
+        "depth": 450,
+        "height": 820,
+        "color": "#b79b7a",
+        "id": "demo_18",
+        "position": [
+          9600,
+          6200
+        ],
+        "rotation": 0
+      },
+      {
+        "type": "chair",
+        "name": "餐椅",
+        "category": "餐厨",
+        "width": 450,
+        "depth": 450,
+        "height": 820,
+        "color": "#b79b7a",
+        "id": "demo_19",
+        "position": [
+          11000,
+          6200
+        ],
+        "rotation": 0
+      },
+      {
+        "type": "chair",
+        "name": "餐椅",
+        "category": "餐厨",
+        "width": 450,
+        "depth": 450,
+        "height": 820,
+        "color": "#b79b7a",
+        "id": "demo_20",
+        "position": [
+          9600,
+          7000
+        ],
+        "rotation": 0
+      },
+      {
+        "type": "chair",
+        "name": "餐椅",
+        "category": "餐厨",
+        "width": 450,
+        "depth": 450,
+        "height": 820,
+        "color": "#b79b7a",
+        "id": "demo_21",
+        "position": [
+          11000,
+          7000
+        ],
+        "rotation": 0
+      },
+      {
+        "type": "counter",
+        "name": "操作台",
+        "category": "餐厨",
+        "width": 1200,
+        "depth": 600,
+        "height": 900,
+        "color": "#d4cdbd",
+        "id": "demo_22",
+        "position": [
+          10800,
+          5000
+        ],
+        "rotation": 0
+      },
+      {
+        "type": "fridge",
+        "name": "冰箱",
+        "category": "家电",
+        "width": 900,
+        "depth": 700,
+        "height": 1800,
+        "color": "#bec2bc",
+        "id": "demo_23",
+        "position": [
+          8700,
+          5200
+        ],
+        "rotation": 0
+      },
+      {
+        "type": "sink",
+        "name": "水槽柜",
+        "category": "餐厨",
+        "width": 900,
+        "depth": 600,
+        "height": 900,
+        "color": "#c8c8bc",
+        "id": "demo_24",
+        "position": [
+          11000,
+          8200
+        ],
+        "rotation": 0
+      }
+    ]
+  },
+  "image": null
+}
