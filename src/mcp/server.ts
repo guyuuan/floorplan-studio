@@ -13,4 +13,28 @@ process.env.FLOORPLAN_DATA_DIR = path.resolve(
   process.env.FLOORPLAN_DATA_DIR ?? ".data",
 );
 const { createMcpServer } = await import("./create-server");
-await createMcpServer().connect(new StdioServerTransport());
+const { localToken } = await import("../server/repositories/local");
+const base = (process.env.FLOORPLAN_API_URL ?? "http://127.0.0.1:3000").replace(
+  /\/$/,
+  "",
+);
+const api = async (path: string, body?: unknown) => {
+  const credential =
+    process.env.MCP_TOKEN ??
+    process.env.FLOORPLAN_MCP_TOKEN ??
+    (await localToken());
+  const response = await fetch(`${base}/api/agent/${path}`, {
+    method: body ? "POST" : "GET",
+    headers: {
+      authorization: `Bearer ${credential}`,
+      ...(body ? { "content-type": "application/json" } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(30000),
+  });
+  const data = await response.json();
+  if (!response.ok)
+    throw new Error(`${data.code ?? response.status}: ${data.error}`);
+  return data;
+};
+await createMcpServer(api).connect(new StdioServerTransport());

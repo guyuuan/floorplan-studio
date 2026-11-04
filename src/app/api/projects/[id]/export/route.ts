@@ -1,12 +1,14 @@
+import { requireUser } from "@/server/auth";
 import { exportProject } from "@/server/store";
 import { errorResponse } from "@/server/http";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function GET(
-  _: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    await requireUser(request);
     return Response.json(await exportProject((await params).id), {
       headers: {
         "Content-Disposition": 'attachment; filename="floorplan.json"',

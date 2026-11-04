@@ -1,7 +1,6 @@
-import { timingSafeEqual } from "node:crypto";
 import { ZodError } from "zod";
 import { RuleError } from "../domain/engine";
-import { token } from "./store";
+import { requireMcp, requireUserMutation } from "./auth";
 
 export function errorResponse(e: unknown) {
   if (e instanceof RuleError)
@@ -25,23 +24,8 @@ export function errorResponse(e: unknown) {
     { status: 500 },
   );
 }
-export function requireBrowser(request: Request) {
-  const origin = request.headers.get("origin");
-  const host = request.headers.get("host") ?? new URL(request.url).host;
-  if (origin && origin !== "null" && new URL(origin).host === host) return;
-  if (
-    (!origin || origin === "null") &&
-    request.headers.get("sec-fetch-site") === "same-origin"
-  )
-    return;
-  throw new RuleError("ORIGIN_REJECTED", "此操作需要从项目网页发起。", 403);
-}
-export async function requireAgent(request: Request) {
-  const actual = Buffer.from(request.headers.get("authorization") ?? ""),
-    expected = Buffer.from(`Bearer ${await token()}`);
-  if (actual.length !== expected.length || !timingSafeEqual(actual, expected))
-    throw new RuleError("UNAUTHORIZED", "MCP 访问凭据无效。", 401);
-}
+export const requireBrowser = requireUserMutation;
+export const requireAgent = requireMcp;
 export async function limitedJson(request: Request, max = 18 * 1024 * 1024) {
   const reader = request.body?.getReader();
   if (!reader) throw new RuleError("EMPTY_BODY", "请求内容为空。", 400);

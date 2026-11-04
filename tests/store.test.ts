@@ -53,7 +53,10 @@ test("export/import preserves complete geometry and original image, and re-enter
   assert.equal(imported.stage, "reconstruction");
   assert.ok(imported.plan.walls.every((w) => !w.reviewed));
   assert.equal(imported.plan.furniture.length, p.plan.furniture.length);
-  assert.deepEqual((await store.sourceImage(imported.id)).data, image);
+  assert.deepEqual(
+    Buffer.from((await store.sourceImage(imported.id)).data),
+    image,
+  );
 });
 test("invalid and oversized images are rejected", async () => {
   await assert.rejects(

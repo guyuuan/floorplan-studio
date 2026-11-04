@@ -174,14 +174,39 @@ function IconButton({
     </button>
   );
 }
+let csrfToken: string | null = null;
 async function jsonFetch(url: string, init?: RequestInit) {
-  const r = await fetch(url, init),
-    v = await r.json();
+  const headers = new Headers(init?.headers);
+  if (init?.method && !["GET", "HEAD"].includes(init.method.toUpperCase())) {
+    if (!csrfToken) {
+      const session = await fetch("/api/auth/session");
+      if (session.status === 401) {
+        window.location.assign("/login");
+        throw new Error("请重新登录");
+      }
+      const data = await session.json();
+      csrfToken = data.csrf ?? null;
+    }
+    if (csrfToken) headers.set("x-floorplan-csrf", csrfToken);
+  }
+  const r = await fetch(url, { ...init, headers });
+  if (r.status === 401) {
+    window.location.assign("/login");
+    throw new Error("请重新登录");
+  }
+  if (r.status === 304) return null;
+  const v = await r.json();
   if (!r.ok) throw new Error(v.error ?? "操作失败");
   return v;
 }
 
-export default function Studio() {
+export default function Studio({
+  storageMode = "local",
+  loginEnabled = false,
+}: {
+  storageMode?: "local" | "cloudflare";
+  loginEnabled?: boolean;
+}) {
   const [project, setProject] = useState<Project | null>(null),
     [projects, setProjects] = useState<Summary[]>([]),
     [loaded, setLoaded] = useState(false),
@@ -290,7 +315,12 @@ export default function Studio() {
       if (document.hidden || inFlight || mutating.current) return;
       inFlight = true;
       try {
-        const p = await jsonFetch(`/api/projects/${id}`);
+        const p = await jsonFetch(`/api/projects/${id}`, {
+          headers: {
+            "if-none-match": `"revision:${current.current?.revision ?? -1}"`,
+          },
+        });
+        if (!p) return;
         if (
           !cancelled &&
           !mutating.current &&
@@ -770,7 +800,7 @@ export default function Studio() {
           ) : project ? (
             <>
               <CheckCheck size={13} />
-              已保存到本机
+              已保存到{storageMode === "cloudflare" ? "云端" : "本机"}
             </>
           ) : (
             <>
@@ -780,6 +810,18 @@ export default function Studio() {
           )}
         </span>
         <div className="top-actions">
+          {loginEnabled && (
+            <button
+              className="text-button"
+              onClick={() =>
+                void jsonFetch("/api/auth/logout", { method: "POST" }).then(
+                  () => window.location.assign("/login"),
+                )
+              }
+            >
+              退出登录
+            </button>
+          )}
           <IconButton
             label="撤销 ⌘Z"
             disabled={!project?.history.length || busy}
@@ -1161,7 +1203,9 @@ export default function Studio() {
               </div>
               <div className="welcome-bottom">
                 <ShieldCheck size={15} />
-                原图与设计保存在本机<span>·</span>外墙与承重墙保护
+                原图与设计保存在
+                {storageMode === "cloudflare" ? "私人云端" : "本机"}
+                <span>·</span>外墙与承重墙保护
               </div>
             </div>
           ) : (
@@ -1969,7 +2013,11 @@ export default function Studio() {
           </div>
           <div className="inspector-footer">
             <span className="status-dot" />
-            {online ? "本地服务已就绪" : "正在连接本地服务"}
+            {online
+              ? storageMode === "cloudflare"
+                ? "云端服务已就绪"
+                : "本地服务已就绪"
+              : "正在连接服务"}
             <span>{project ? `v${project.revision}` : "MCP READY"}</span>
           </div>
         </aside>
@@ -2060,7 +2108,8 @@ export default function Studio() {
                 />
                 <div className="quiet-note">
                   <ShieldCheck size={14} />
-                  原图仅保存在本机。识别结果需经你核对后才能开始设计。
+                  原图保存在{storageMode === "cloudflare" ? "私人云端" : "本机"}
+                  。识别结果需经你核对后才能开始设计。
                 </div>
                 <button
                   className="button primary full large"
@@ -2081,8 +2130,10 @@ export default function Studio() {
                 <span className="eyebrow">BRING YOUR OWN AGENT</span>
                 <h2>连接你的设计搭档</h2>
                 <p className="muted">
-                  把下面的 MCP 配置添加到支持 MCP 的外部 Agent
-                  客户端。保持本项目服务运行即可。
+                  把下面的 MCP 配置添加到支持 MCP 的外部 Agent 客户端。
+                  {storageMode === "cloudflare"
+                    ? "请将占位符替换为你配置的 MCP_TOKEN；令牌仅保存在客户端。"
+                    : "保持本项目服务运行即可。"}
                 </p>
                 <div className="mcp-flow">
                   <span>
@@ -2101,7 +2152,10 @@ export default function Studio() {
                   </span>
                 </div>
                 <div className="code-heading">
-                  <span>MCP 配置 · stdio</span>
+                  <span>
+                    MCP 配置 ·{" "}
+                    {storageMode === "cloudflare" ? "Streamable HTTP" : "stdio"}
+                  </span>
                   <button
                     className="text-button"
                     disabled={!mcpConfig}

@@ -9,10 +9,21 @@
     "start": "next start --hostname 127.0.0.1",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",
-    "mcp": "node --import tsx src/mcp/server.ts"
+    "mcp": "node --import tsx src/mcp/server.ts",
+    "cf:build": "opennextjs-cloudflare build",
+    "preview": "npm run cf:build && wrangler dev --ip 127.0.0.1 --port 8787",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "cf:config": "node scripts/cloudflare-config.mjs",
+    "deploy": "node scripts/deploy-cloudflare.mjs",
+    "test:cloud": "node --import tsx --test tests/cloudflare.test.ts tests/auth.test.ts tests/mcp.test.ts",
+    "verify:cloudflare": "npm run cf:build && node --import tsx scripts/verify-cloudflare.ts",
+    "migrate:local": "node --import tsx scripts/migrate-local.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
+    "@opennextjs/cloudflare": "1.20.15",
+    "image-size": "2.0.4",
+    "jose": "6.2.15",
     "lucide-react": "^0.468.0",
     "next": "^16.0.0",
     "polygon-clipping": "^0.15.7",
@@ -23,12 +34,16 @@
     "zod": "^3.25.0"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "5.20261103.1",
     "@types/node": "^22.0.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@types/three": "^0.181.0",
+    "jsonc-parser": "3.3.1",
+    "miniflare": "5.20261102.0-beta",
     "prettier": "^3.9.10",
     "tsx": "^4.20.0",
-    "typescript": "^5.9.0"
+    "typescript": "^5.9.0",
+    "wrangler": "4.156.2"
   }
 }

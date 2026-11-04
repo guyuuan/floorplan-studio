@@ -5,7 +5,7 @@ import sharp from "sharp";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { demoPlan } from "../src/domain/demo";
-import { dataDirectory } from "../src/server/store";
+import { dataDirectory } from "../src/server/repositories/local";
 
 // Runs against the project's existing local Next.js server; all created fixtures are removed.
 const base = process.env.FLOORPLAN_API_URL ?? "http://127.0.0.1:3000";

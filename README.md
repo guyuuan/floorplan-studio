@@ -1,8 +1,8 @@
 # 筑间 · Floorplan Studio
 
-参考 [wy51ai/floorplan-3d](https://github.com/wy51ai/floorplan-3d) 的功能，使用 **Next.js + React + Three.js + TypeScript** 重新实现的本地户型设计工作台。
+参考 [wy51ai/floorplan-3d](https://github.com/wy51ai/floorplan-3d) 的功能，使用 **Next.js + React + Three.js + TypeScript** 重新实现的户型设计工作台，支持本地运行与 Cloudflare Workers 部署。
 
-支持外部 Agent 通过标准 **MCP stdio** 读取户型图片、提交还原结果和调整设计。**不包含网页内置聊天助手**，无需在网页配置模型 API Key。图片理解由支持视觉的外部 Agent 完成。
+支持外部 Agent 通过本地 **MCP stdio** 或线上 **Streamable HTTP MCP** 读取户型图片、提交还原结果和调整设计。**不包含网页内置聊天助手**，无需在网页配置模型 API Key。图片理解由支持视觉的外部 Agent 完成。
 
 ## 启动
 
@@ -23,6 +23,18 @@ npm start
 ```
 
 项目默认只监听 `127.0.0.1`。数据保存在项目目录的 `.data/`，不是浏览器缓存。项目几何、历史和原图由本地服务持久化；浏览器只记住最近打开的项目 ID。备份 `.data/` 或导出完整 JSON 即可保存方案。不要提交 `.data/`、`.env.local` 或凭据。
+
+## Cloudflare Workers 部署
+
+已适配 OpenNext、D1 与私有 R2。线上为个人单账号使用，网站账号密码、域名和独立 MCP 令牌通过环境变量配置；网站凭据和令牌写入 Workers Secrets。
+
+完整步骤、变量说明、远程 MCP 配置和旧项目迁移见 [Cloudflare 部署文档](docs/cloudflare-deployment.md)。填写 `.env.deploy` 后执行：
+
+```sh
+node --env-file=.env.deploy scripts/deploy-cloudflare.mjs
+```
+
+本地 Workers 预览使用 `.dev.vars`，先执行 `npm run db:migrate:local`，再执行 `npm run preview`。
 
 ## 工作流程
 
@@ -79,7 +91,7 @@ Agent 提示词示例：
 
 ## MCP 接入
 
-推荐直接复制网页「连接 Agent」中的配置。也可以在项目目录生成配置：
+推荐直接复制网页「连接 Agent」中的配置。线上使用 `/api/mcp` 和独立 Bearer Token，详见部署文档。以下命令生成本地 stdio 配置：
 
 ```sh
 node scripts/print-mcp-config.mjs
@@ -108,8 +120,10 @@ src/components/          React 工作台、SVG 2D、Three.js 3D
 src/domain/schema.ts     户型与操作的 Zod Schema
 src/domain/engine.ts     墙体保护、状态机、批量操作与撤销
 src/domain/geometry.ts   墙体几何、空间分区及面积计算
-src/server/              本地持久化、原子写入、并发控制与来源校验
-src/mcp/                 MCP 工具、资源与 stdio 入口
+src/server/              本地 / D1 + R2 持久化、登录、并发控制与来源校验
+src/mcp/                 共享 MCP 工具、资源与 stdio 入口
+src/app/api/mcp/         远程 Streamable HTTP MCP
+migrations/             D1 数据库迁移
 tests/                  规则、持久化、并发及往返测试
 scripts/verify-mcp.ts    真实 MCP 客户端端到端验证
 ```
@@ -120,9 +134,11 @@ scripts/verify-mcp.ts    真实 MCP 客户端端到端验证
 npm test
 npm run typecheck
 npm run build
+# Workers 产物和真实 HTTP MCP 本地端到端验证
+npm run verify:cloudflare
 ```
 
-启动网页服务后，可运行真实 MCP 客户端集成验证：
+启动本地免登录网页服务后，可运行真实 MCP 客户端集成验证：
 
 ```sh
 node --import tsx scripts/verify-mcp.ts
@@ -132,7 +148,7 @@ node --import tsx scripts/verify-mcp.ts
 
 ## 当前适用范围
 
-- 本版本面向**本机单用户**，提供 stdio MCP。网页 HTTP 接口没有多用户登录与租户隔离，不应直接暴露到公网；服务器部署需增加相应的身份认证和存储适配。
+- 本版本面向**个人单账号**。本地默认仅回环地址免登录，线上强制账号密码登录并独立保护 MCP；不提供多用户注册或租户隔离。线上必须通过文档中的部署脚本配置域名、Secrets、D1 和私有 R2。
 - 已验证工具和数据流程；实际图片的识别精度取决于外部 Agent 的视觉能力、图片清晰度和尺寸信息，需用真实户型验收。网页不会自行识别图片。
 - 墙体模型支持任意方向的直墙、厚度和洞口，不支持弧墙、复杂梁柱或多楼层。家具使用程序化几何模型。
 - 房间划分按完整墙线计算，门洞保留房间边界；拆除墙段后连通区域会合并。大开敞空间的功能分区仍可能需要进一步划分。

@@ -7,7 +7,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    requireBrowser(request);
+    await requireBrowser(request);
     const b = batchSchema.parse(await limitedJson(request));
     return Response.json(
       await mutateProject(

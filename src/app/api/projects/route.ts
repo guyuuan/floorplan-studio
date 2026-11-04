@@ -1,9 +1,11 @@
+import { requireUser } from "@/server/auth";
 import { createProject, inspectImage, listProjects } from "@/server/store";
 import { errorResponse, requireBrowser } from "@/server/http";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    await requireUser(request);
     return Response.json(await listProjects());
   } catch (e) {
     return errorResponse(e);
@@ -11,7 +13,7 @@ export async function GET() {
 }
 export async function POST(request: Request) {
   try {
-    requireBrowser(request);
+    await requireBrowser(request);
     const data = await request.formData();
     const name = String(data.get("name") ?? "我的户型");
     const demo = data.get("demo") === "true";

@@ -4,27 +4,10 @@ import { commandSchema, planSchema } from "../domain/schema";
 import { catalog } from "../domain/catalog";
 const doorGuidance =
   "门宽须依据原图标注或可靠比例及洞口两端计算，width 为洞口总宽，不是单扇门宽；不能把整段阳台边界当门。超过 1200 mm 必须核对并明确 doorStyle：double（双扇）、sliding（推拉）或 opening（无门扇）；single 单扇及 double 每扇不超过 1200 mm。门型、宽度或是否有门扇无法确认时先询问用户，不得猜测。";
-import { token } from "../server/store";
+export type McpApi = (path: string, body?: unknown) => Promise<any>;
 
-export function createMcpServer() {
-  const server = new McpServer({ name: "floorplan-studio", version: "0.1.0" });
-  const base = (
-    process.env.FLOORPLAN_API_URL ?? "http://127.0.0.1:3000"
-  ).replace(/\/$/, "");
-  const api = async (path: string, body?: unknown) => {
-    const r = await fetch(`${base}/api/agent/${path}`, {
-      method: body ? "POST" : "GET",
-      headers: {
-        authorization: `Bearer ${await token()}`,
-        ...(body ? { "content-type": "application/json" } : {}),
-      },
-      body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(30000),
-    });
-    const data = await r.json();
-    if (!r.ok) throw new Error(`${data.code ?? r.status}: ${data.error}`);
-    return data;
-  };
+export function createMcpServer(api: McpApi) {
+  const server = new McpServer({ name: "floorplan-studio", version: "0.2.0" });
   const result = (value: unknown) => ({
     content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
   });
