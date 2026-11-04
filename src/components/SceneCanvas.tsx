@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
+import polygonClipping from "polygon-clipping";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { PointerLockControls } from "three/addons/controls/PointerLockControls.js";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
@@ -11,6 +12,7 @@ import {
   inside,
   roomArea,
   wallLength,
+  wallFootprints,
 } from "@/domain/geometry";
 import { materials, type Furniture, type Plan } from "@/domain/schema";
 import type { Selection } from "./PlanCanvas";
@@ -552,6 +554,7 @@ export function SceneCanvas({
       angle: number;
       center: THREE.Vector3;
     }[] = [];
+    const footprints = wallFootprints(plan.walls);
     for (const w of plan.walls) {
       const l = wallLength(w) / 1000,
         t = w.thickness / 1000,
@@ -561,6 +564,24 @@ export function SceneCanvas({
       const group = new THREE.Group();
       group.position.set(w.a[0] / 1000, 0, w.a[1] / 1000);
       group.rotation.y = ang;
+      const ux = Math.cos(ang),
+        uy = -Math.sin(ang);
+      const footprint: polygonClipping.MultiPolygon = footprints[w.id].map(
+        (polygon) =>
+          polygon.map((ring) =>
+            ring.map(([x, y]) => {
+              const dx = (x - w.a[0]) / 1000,
+                dy = (y - w.a[1]) / 1000;
+              return [dx * ux + dy * uy, -dx * uy + dy * ux] as [
+                number,
+                number,
+              ];
+            }),
+          ),
+      );
+      const xs = footprint.flat(2).map((p) => p[0]),
+        zs = footprint.flat(2).map((p) => p[1]),
+        band = Math.max(t, ...zs.map(Math.abs)) + 1;
       const piece = (
         start: number,
         end: number,
@@ -569,19 +590,47 @@ export function SceneCanvas({
         material: THREE.Material = wallMat,
       ) => {
         if (end - start < 0.001 || top - bottom < 0.001) return;
-        const m = new THREE.Mesh(
-          new THREE.BoxGeometry(end - start, top - bottom, t),
-          [material, material, capMat, material, material, material],
-        );
-        m.position.set((start + end) / 2, (bottom + top) / 2, 0);
-        m.castShadow = true;
-        m.receiveShadow = true;
-        group.add(m);
+        const sections = polygonClipping.intersection(footprint, [
+          [
+            [start, -band],
+            [end, -band],
+            [end, band],
+            [start, band],
+          ],
+        ]);
+        for (const polygon of sections) {
+          const contour = (
+            ring: number[][],
+            path: THREE.Shape | THREE.Path,
+          ) => {
+            ring.forEach(([x, z], i) =>
+              i ? path.lineTo(x, -z) : path.moveTo(x, -z),
+            );
+            path.closePath();
+            return path;
+          };
+          const shape = contour(polygon[0], new THREE.Shape()) as THREE.Shape;
+          shape.holes = polygon
+            .slice(1)
+            .map((ring) => contour(ring, new THREE.Path()) as THREE.Path);
+          const mesh = new THREE.Mesh(
+            new THREE.ExtrudeGeometry(shape, {
+              depth: top - bottom,
+              bevelEnabled: false,
+            }),
+            [capMat, material],
+          );
+          mesh.rotation.x = -Math.PI / 2;
+          mesh.position.y = bottom;
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          group.add(mesh);
+        }
       };
       const openings = plan.openings
         .filter((o) => o.wallId === w.id)
         .sort((a, b) => a.offset - b.offset);
-      let cursor = 0;
+      let cursor = Math.min(0, ...xs);
       for (const o of openings) {
         const a = o.offset / 1000,
           z = (o.offset + o.width) / 1000;
@@ -637,7 +686,7 @@ export function SceneCanvas({
         }
         cursor = z;
       }
-      piece(cursor, l, 0, h);
+      piece(cursor, Math.max(l, ...xs), 0, h);
       scene.add(group);
     }
     const furniture = new THREE.Group();

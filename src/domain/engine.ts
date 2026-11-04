@@ -15,7 +15,9 @@ import {
   furniturePolygon,
   inside,
   wallLength,
-  wallPolygon,
+  wallFootprints,
+  connectWallEndpoints,
+  overlappingWall,
 } from "./geometry";
 
 export class RuleError extends Error {
@@ -88,7 +90,10 @@ export function validatePlan(plan: unknown) {
   for (const w of p.walls) {
     if (wallLength(w) < 100)
       fail("WALL_TOO_SHORT", "墙体长度不能小于 100 mm。");
-    const outside = polygonClipping.difference([wallPolygon(w)], [p.boundary]);
+  }
+  const footprints = wallFootprints(p.walls);
+  for (const w of p.walls) {
+    const outside = polygonClipping.difference(footprints[w.id], [p.boundary]);
     if (
       outside.reduce((s, poly) => s + area(poly[0] as [number, number][]), 0) >
       10
@@ -123,7 +128,7 @@ export function validatePlan(plan: unknown) {
     for (const w of p.walls) {
       const overlap = polygonClipping.intersection(
         [furniturePolygon(f)],
-        [wallPolygon(w)],
+        footprints[w.id],
       );
       if (
         overlap.reduce(
@@ -241,18 +246,56 @@ export function applyCommands(
         w.reviewed = c.kind !== "unknown";
         break;
       }
-      case "add_wall":
+      case "add_wall": {
         if (p.stage !== "design") fail("NOT_IN_DESIGN", "请先确认还原户型。");
         if (c.wall.kind !== "partition")
           fail("PARTITION_ONLY", "设计阶段只能新建非承重内墙。");
-        p.plan.walls.push({ ...c.wall, reviewed: true });
+        if (p.plan.walls.some((w) => w.id === c.wall.id))
+          fail("DUPLICATE_ID", "同类对象的 ID 不可重复。");
+        if (wallLength(c.wall) < 100)
+          fail("WALL_TOO_SHORT", "墙体长度不能小于 100 mm。");
+        const added = connectWallEndpoints(
+          { ...c.wall, reviewed: true },
+          p.plan.walls,
+        );
+        const conflict = overlappingWall(added, p.plan.walls);
+        if (conflict)
+          fail(
+            "WALL_INTERSECTION",
+            `新墙与墙体 ${conflict.id} 相交或重叠，请将端点接到墙面，不要穿过现有墙体。`,
+          );
+        p.plan.walls.push(added);
         geometryChanged = true;
         break;
+      }
       case "update_wall": {
         const w = wallById(p, c.wallId);
         editable(w, p);
         for (const k of ["a", "b", "thickness", "height"] as const)
           if (c[k] !== undefined) Object.assign(w, { [k]: c[k] });
+        const requestedStart = [...w.a] as [number, number],
+          requestedLength = wallLength(w);
+        const direction = requestedLength
+          ? [
+              (w.b[0] - w.a[0]) / requestedLength,
+              (w.b[1] - w.a[1]) / requestedLength,
+            ]
+          : [0, 0];
+        if (requestedLength < 100)
+          fail("WALL_TOO_SHORT", "墙体长度不能小于 100 mm。");
+        const connected = connectWallEndpoints(w, p.plan.walls);
+        const conflict = overlappingWall(connected, p.plan.walls);
+        if (conflict)
+          fail(
+            "WALL_INTERSECTION",
+            `调整后与墙体 ${conflict.id} 相交或重叠，请调整端点或厚度。`,
+          );
+        const shift =
+          (connected.a[0] - requestedStart[0]) * direction[0] +
+          (connected.a[1] - requestedStart[1]) * direction[1];
+        Object.assign(w, connected);
+        for (const opening of p.plan.openings)
+          if (opening.wallId === w.id) opening.offset -= shift;
         geometryChanged = true;
         break;
       }

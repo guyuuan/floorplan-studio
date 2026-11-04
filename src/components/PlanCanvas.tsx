@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { Furniture, Plan, Point, Wall } from "@/domain/schema";
 import {
   along,
@@ -9,7 +9,10 @@ import {
   length,
   roomArea,
   wallLength,
-  wallPolygon,
+  wallFootprints,
+  wallOutline,
+  connectWallEndpoints,
+  overlappingWall,
 } from "@/domain/geometry";
 import { materials } from "@/domain/schema";
 import { FurnitureShape } from "./FurnitureShape";
@@ -63,6 +66,7 @@ export function PlanCanvas({
     [start, setStart] = useState<Point | null>(null),
     [cursor, setCursor] = useState<Point | null>(null),
     [measure, setMeasure] = useState<[Point, Point] | null>(null);
+  const footprints = useMemo(() => wallFootprints(plan.walls), [plan.walls]);
   const b = bounds(plan),
     padding = 1000,
     viewW = (b.width + padding * 2) / zoom,
@@ -93,6 +97,25 @@ export function PlanCanvas({
           : [origin[0], q[1]];
     return q;
   };
+  const previewWall =
+    start && cursor && tool === "wall" && length(start, cursor) >= 100
+      ? connectWallEndpoints(
+          {
+            id: "wall_preview",
+            a: start,
+            b: cursor,
+            thickness: 120,
+            height: 2800,
+            kind: "partition",
+            reviewed: true,
+          },
+          plan.walls,
+          80 / zoom,
+        )
+      : null;
+  const previewConflict = previewWall
+    ? overlappingWall(previewWall, plan.walls)
+    : null;
   const pointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
     if (e.button !== 0 && e.button !== 1) return;
     if (tool === "pan" || e.button === 1) {
@@ -173,7 +196,7 @@ export function PlanCanvas({
       setGhost(null);
     }
     if (start && cursor && length(start, cursor) > 100) {
-      if (tool === "wall") onWall(start, cursor);
+      if (tool === "wall" && previewWall) onWall(previewWall.a, previewWall.b);
       if (tool === "measure") setMeasure([start, cursor]);
     }
     setStart(null);
@@ -402,12 +425,16 @@ export function PlanCanvas({
             className="wall-object"
             onClick={(e) => wallClick(e, w)}
           >
-            <polygon
-              points={wallPolygon(w, true)
-                .map((p) => p.join(","))
-                .join(" ")}
-              fill={fill}
-            />
+            {footprints[w.id].map((polygon, i) => (
+              <path
+                key={i}
+                d={polygon
+                  .map((ring) => `M${ring.map((p) => p.join(",")).join("L")}Z`)
+                  .join(" ")}
+                fill={fill}
+                fillRule="evenodd"
+              />
+            ))}
             {selected && (
               <path
                 d={`M${w.a}L${w.b}`}
@@ -536,7 +563,22 @@ export function PlanCanvas({
         </g>
       )}
       {measure && renderMeasure(...measure, "saved")}
-      {start && cursor && renderMeasure(start, cursor, "live")}
+      {previewWall ? (
+        <g pointerEvents="none">
+          <polygon
+            points={wallOutline(previewWall, plan.walls)
+              .map((p) => p.join(","))
+              .join(" ")}
+            fill={previewConflict ? "#c07b65" : "#6c9272"}
+            fillOpacity={0.45}
+            stroke={previewConflict ? "#ad5948" : "#47785d"}
+            strokeWidth={15}
+          />
+          {renderMeasure(previewWall.a, previewWall.b, "live")}
+        </g>
+      ) : (
+        start && cursor && renderMeasure(start, cursor, "live")
+      )}
       {!plan.walls.length && !sourceUrl && (
         <text
           x={5000}

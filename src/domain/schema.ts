@@ -14,8 +14,10 @@ const id = z
   .regex(/^[a-zA-Z0-9_-]+$/);
 export const wallSchema = z.object({
   id,
-  a: pointSchema,
-  b: pointSchema,
+  a: pointSchema.describe(
+    "墙厚中心线的起点 mm；新墙连接处自动按现有墙面及墙厚贴合",
+  ),
+  b: pointSchema.describe("墙厚中心线的终点 mm，不是墙体外皮角点"),
   thickness: positive.min(40).max(1200),
   height: positive.min(300).max(6000).default(2800),
   kind: z.enum(["exterior", "bearing", "partition", "unknown"]),

@@ -1570,25 +1570,25 @@ export default function Studio() {
                       <div className="field-grid">
                         <Field
                           name="ax"
-                          label="起点 X"
+                          label="起点 X（中心线 mm）"
                           value={Math.round(selectedWall.a[0])}
                           disabled={selectedWall.kind !== "partition"}
                         />
                         <Field
                           name="ay"
-                          label="起点 Y"
+                          label="起点 Y（中心线 mm）"
                           value={Math.round(selectedWall.a[1])}
                           disabled={selectedWall.kind !== "partition"}
                         />
                         <Field
                           name="bx"
-                          label="终点 X"
+                          label="终点 X（中心线 mm）"
                           value={Math.round(selectedWall.b[0])}
                           disabled={selectedWall.kind !== "partition"}
                         />
                         <Field
                           name="by"
-                          label="终点 Y"
+                          label="终点 Y（中心线 mm）"
                           value={Math.round(selectedWall.b[1])}
                           disabled={selectedWall.kind !== "partition"}
                         />

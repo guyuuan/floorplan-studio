@@ -103,7 +103,7 @@ export function createMcpServer() {
     "restore_floorplan",
     {
       description:
-        "仅在 reconstruction 阶段提交完整还原户型。坐标/宽度单位 mm；boundary 为建筑外皮闭合轮廓（不重复首点），墙端点为中心线。墙体 reviewed 会强制置为 false。承重不明确用 unknown，外墙用 exterior；不要编造尺寸，缺少可靠尺寸时向用户询问。家具可留空。房间由墙体自动计算，传入 room 多边形可保留命名和材质。提交后等待用户在网页标定并确认；Agent 无权确认或改变墙体类别。",
+        "仅在 reconstruction 阶段提交完整还原户型。坐标/宽度单位 mm；boundary 为建筑外皮闭合轮廓（不重复首点），墙端点为墙厚中心线坐标，不能用墙皮角点。新墙端点会按现有墙面自动贴合，实体不得交叉或重叠；新增后先读取返回的实际端点，再按实际起点定位门窗。墙体 reviewed 会强制置为 false。承重不明确用 unknown，外墙用 exterior；不要编造尺寸，缺少可靠尺寸时向用户询问。家具可留空。房间由墙体自动计算，传入 room 多边形可保留命名和材质。提交后等待用户在网页标定并确认；Agent 无权确认或改变墙体类别。",
       inputSchema: {
         projectId: z.string(),
         expectedRevision: z.number().int(),
@@ -124,7 +124,7 @@ export function createMcpServer() {
     "apply_design_commands",
     {
       description:
-        "原子执行设计操作；任何一项失败则整批不保存。仅允许修改已确认的非承重内墙及其门窗；外墙、外墙门窗、承重墙锁定，不能改类别或撤销用户确认。remove_wall 的 from/to 为沿墙起点计的 mm。家具使用 catalog 类型。revision 冲突后重新读项目并按最新状态重新规划，禁止盲目重放。",
+        "原子执行设计操作；任何一项失败则整批不保存。仅允许修改已确认的非承重内墙及其门窗；外墙、外墙门窗、承重墙锁定，不能改类别或撤销用户确认。add_wall/update_wall 的 a/b 使用墙厚中心线坐标，端头按实际墙面贴合，禁止实体交叉重叠；新增后按返回的实际起点定位门窗。remove_wall 的 from/to 为沿墙起点计的 mm。家具使用 catalog 类型。revision 冲突后重新读项目并按最新状态重新规划，禁止盲目重放。",
       inputSchema: {
         projectId: z.string(),
         expectedRevision: z.number().int(),
