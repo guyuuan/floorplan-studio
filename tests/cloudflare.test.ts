@@ -156,3 +156,90 @@ test("R2 source uploads are immutable and an identical retry is safe", async () 
     new Uint8Array([1, 2, 3]),
   );
 });
+
+test("real D1: per-user MCP credentials persist, reject the legacy shared token and revoke atomically", async () => {
+  const { userMcpTokens } = await import("../src/server/mcp-tokens");
+  const { requireMcp } = await import("../src/server/auth");
+  await db.exec(
+    (await readFile("migrations/0002_user_mcp_tokens.sql", "utf8")).replace(
+      /\n/g,
+      " ",
+    ),
+  );
+  const runtime = {
+    mode: "cloudflare" as const,
+    env: {
+      DB: db,
+      APP_ORIGIN: "https://floorplan.example.com",
+      APP_USERNAME: "alice",
+      APP_PASSWORD: "test-password-more-than-12",
+      SESSION_SECRET: "test-session-secret-more-than-32-characters",
+      MCP_TOKEN: "legacy-global-token-more-than-32-characters",
+    },
+  };
+  const tokens = await userMcpTokens(runtime);
+  const race = await Promise.all(
+    Array.from({ length: 4 }, () => tokens.issue("alice")),
+  );
+  assert.equal(race.filter((r) => r.token).length, 1);
+  const alice = race.find((r) => r.token)!,
+    bob = await tokens.issue("bob");
+  const request = (token: string, origin?: string) =>
+    new Request("https://floorplan.example.com/api/mcp", {
+      headers: {
+        authorization: `Bearer ${token}`,
+        ...(origin ? { origin } : {}),
+      },
+    });
+  assert.deepEqual(await requireMcp(request(alice.token!), runtime), {
+    username: "alice",
+  });
+  await assert.rejects(
+    requireMcp(request(bob.token!), runtime),
+    (e) => e instanceof RuleError && e.status === 401,
+  );
+  await assert.rejects(
+    requireMcp(request(runtime.env.MCP_TOKEN), runtime),
+    (e) => e instanceof RuleError && e.status === 401,
+  );
+  await assert.rejects(
+    requireMcp(request(alice.token!, "https://attacker.example"), runtime),
+    (e) => e instanceof RuleError && e.status === 403,
+  );
+  const newInstance = await userMcpTokens(runtime);
+  assert.equal(await newInstance.verify("alice", alice.token!), true);
+  assert.equal((await newInstance.issue("alice")).token, null);
+  const rotated = await newInstance.issue("alice", true);
+  await assert.rejects(
+    requireMcp(request(alice.token!), runtime),
+    (e) => e instanceof RuleError && e.status === 401,
+  );
+  assert.deepEqual(await requireMcp(request(rotated.token!), runtime), {
+    username: "alice",
+  });
+  assert.equal(await tokens.verify("bob", bob.token!), true);
+  const changedUser = {
+    ...runtime,
+    env: { ...runtime.env, APP_USERNAME: "bob" },
+  };
+  assert.deepEqual(await requireMcp(request(bob.token!), changedUser), {
+    username: "bob",
+  });
+  await assert.rejects(
+    requireMcp(request(rotated.token!), changedUser),
+    (e) => e instanceof RuleError && e.status === 401,
+  );
+  const changedSecret = {
+    ...runtime,
+    env: {
+      ...runtime.env,
+      SESSION_SECRET: "different-test-session-key-more-than-32-characters",
+    },
+  };
+  await assert.rejects(
+    requireMcp(request(rotated.token!), changedSecret),
+    (e) => e instanceof RuleError && e.status === 401,
+  );
+  const stored = await db.prepare("SELECT * FROM user_mcp_tokens").all();
+  assert.ok(!JSON.stringify(stored.results).includes(rotated.token!));
+});

@@ -52,7 +52,6 @@ try {
     APP_USERNAME: process.env.APP_USERNAME,
     APP_PASSWORD: process.env.APP_PASSWORD,
     SESSION_SECRET: process.env.SESSION_SECRET,
-    MCP_TOKEN: process.env.MCP_TOKEN,
   };
   await run(["secret", "bulk", "--config", config], JSON.stringify(secrets));
   console.log(

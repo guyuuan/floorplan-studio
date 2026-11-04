@@ -10,7 +10,6 @@ const env = {
   APP_USERNAME: "example-owner",
   APP_PASSWORD: "example-owner-password",
   SESSION_SECRET: "example-session-secret-more-than-32-characters",
-  MCP_TOKEN: "example-mcp-token-more-than-32-characters",
   CLOUDFLARE_ACCOUNT_ID: "a".repeat(32),
   FLOORPLAN_D1_ID: "11111111-1111-1111-1111-111111111111",
 };
@@ -26,7 +25,7 @@ test("deployment requires real configuration and rejects loopback, paths and sha
     }),
   );
   assert.throws(() =>
-    deploymentSettings({ ...env, MCP_TOKEN: env.SESSION_SECRET }),
+    deploymentSettings({ ...env, APP_PASSWORD: env.SESSION_SECRET }),
   );
 });
 test("deployment configuration uses environment-provided domain and bindings without exposing secrets", async () => {
@@ -37,6 +36,6 @@ test("deployment configuration uses environment-provided domain and bindings wit
   assert.equal(config.workers_dev, false);
   assert.equal(config.preview_urls, false);
   assert.equal(config.d1_databases[0].database_id, env.FLOORPLAN_D1_ID);
-  for (const secret of [env.APP_PASSWORD, env.SESSION_SECRET, env.MCP_TOKEN])
+  for (const secret of [env.APP_PASSWORD, env.SESSION_SECRET])
     assert.ok(!text.includes(secret));
 });

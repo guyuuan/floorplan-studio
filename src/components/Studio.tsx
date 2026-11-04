@@ -236,6 +236,12 @@ export default function Studio({
     [projectMenu, setProjectMenu] = useState(false),
     [exportMenu, setExportMenu] = useState(false),
     [mcpConfig, setMcpConfig] = useState(""),
+    [mcpCredential, setMcpCredential] = useState<{
+      username: string;
+      exists: boolean;
+      issued: boolean;
+    } | null>(null),
+    [mcpBusy, setMcpBusy] = useState(false),
     [online, setOnline] = useState(false);
   const [cut, setCut] = useState(true),
     [time, setTime] = useState(14),
@@ -578,12 +584,50 @@ export default function Studio({
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
   }, [modal, walk, selection, deleteSelection, run, moveFurniture]);
+  const updateMcpConfig = (data: {
+    credential: typeof mcpCredential;
+    [key: string]: unknown;
+  }) => {
+    const { credential, ...configuration } = data;
+    setMcpCredential(credential);
+    setMcpConfig(JSON.stringify(configuration, null, 2));
+  };
   const connect = async () => {
     setModal("mcp");
+    setMcpConfig("");
+    setMcpCredential(null);
+    setMcpBusy(true);
     try {
-      setMcpConfig(JSON.stringify(await jsonFetch("/api/setup"), null, 2));
+      updateMcpConfig(await jsonFetch("/api/setup"));
     } catch (e) {
       notify(String(e));
+    } finally {
+      setMcpBusy(false);
+    }
+  };
+  const generateMcpToken = async () => {
+    if (mcpBusy || !mcpCredential) return;
+    setMcpBusy(true);
+    try {
+      const data = await jsonFetch("/api/setup", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: mcpCredential.exists ? "rotate" : "create",
+        }),
+      });
+      updateMcpConfig(data);
+      notify(
+        data.credential.issued
+          ? mcpCredential.exists
+            ? "新令牌已生成，旧令牌已失效，请复制保存。"
+            : "个人令牌已生成，请立即复制保存。"
+          : "已有个人令牌。如未保存，请重置后重新连接。",
+      );
+    } catch (e) {
+      notify(String(e));
+    } finally {
+      setMcpBusy(false);
     }
   };
   const copy = async (text: string) => {
@@ -2131,8 +2175,8 @@ export default function Studio({
                 <h2>连接你的设计搭档</h2>
                 <p className="muted">
                   把下面的 MCP 配置添加到支持 MCP 的外部 Agent 客户端。
-                  {storageMode === "cloudflare"
-                    ? "请将占位符替换为你配置的 MCP_TOKEN；令牌仅保存在客户端。"
+                  {loginEnabled
+                    ? "每个账号使用独立令牌，完整令牌仅在生成时展示一次，请妥善保存。"
                     : "保持本项目服务运行即可。"}
                 </p>
                 <div className="mcp-flow">
@@ -2151,14 +2195,46 @@ export default function Studio({
                     2D / 3D 同步
                   </span>
                 </div>
+                {mcpCredential && (
+                  <div className="quiet-note">
+                    <div>
+                      <strong>账号：{mcpCredential.username}</strong>
+                      <p>
+                        {mcpCredential.issued
+                          ? "令牌已生成，请立即复制下方配置。关闭后无法再次查看明文。"
+                          : mcpCredential.exists
+                            ? "已生成个人令牌。如未保存，可重置后重新连接。"
+                            : "尚未生成个人令牌。"}
+                      </p>
+                      <p>重置后旧令牌立即失效，需要更新所有 Agent 客户端。</p>
+                      <button
+                        className="button light"
+                        disabled={mcpBusy}
+                        onClick={() => void generateMcpToken()}
+                      >
+                        {mcpBusy
+                          ? "正在生成…"
+                          : mcpCredential.exists
+                            ? "重置我的令牌"
+                            : "生成我的令牌"}
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <div className="code-heading">
                   <span>
                     MCP 配置 ·{" "}
-                    {storageMode === "cloudflare" ? "Streamable HTTP" : "stdio"}
+                    {loginEnabled || storageMode === "cloudflare"
+                      ? "Streamable HTTP"
+                      : "stdio"}
                   </span>
                   <button
                     className="text-button"
-                    disabled={!mcpConfig}
+                    disabled={
+                      !mcpConfig ||
+                      mcpBusy ||
+                      (loginEnabled && !mcpCredential?.issued)
+                    }
                     onClick={() => void copy(mcpConfig)}
                   >
                     <Copy size={13} />

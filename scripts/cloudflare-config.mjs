@@ -14,7 +14,6 @@ export function deploymentSettings(env = process.env) {
     "APP_USERNAME",
     "APP_PASSWORD",
     "SESSION_SECRET",
-    "MCP_TOKEN",
     "CLOUDFLARE_ACCOUNT_ID",
     "FLOORPLAN_D1_ID",
   ];
@@ -35,20 +34,10 @@ export function deploymentSettings(env = process.env) {
     origin.hostname.endsWith(".example")
   )
     throw new Error("APP_ORIGIN 必须是计划绑定的真实 HTTPS 域名，不包含路径。");
-  if (
-    env.APP_PASSWORD.length < 12 ||
-    env.SESSION_SECRET.length < 32 ||
-    env.MCP_TOKEN.length < 32
-  )
-    throw new Error(
-      "APP_PASSWORD 至少 12 位，SESSION_SECRET 和 MCP_TOKEN 至少 32 位。",
-    );
-  if (
-    env.APP_PASSWORD === env.SESSION_SECRET ||
-    env.SESSION_SECRET === env.MCP_TOKEN ||
-    env.APP_PASSWORD === env.MCP_TOKEN
-  )
-    throw new Error("登录密码、会话密钥和 MCP 令牌必须分别设置。");
+  if (env.APP_PASSWORD.length < 12 || env.SESSION_SECRET.length < 32)
+    throw new Error("APP_PASSWORD 至少 12 位，SESSION_SECRET 至少 32 位。");
+  if (env.APP_PASSWORD === env.SESSION_SECRET)
+    throw new Error("登录密码和会话密钥必须分别设置。");
   if (
     !/^[a-f0-9]{32}$/i.test(env.CLOUDFLARE_ACCOUNT_ID) ||
     !/^[a-f0-9-]{36}$/i.test(env.FLOORPLAN_D1_ID)

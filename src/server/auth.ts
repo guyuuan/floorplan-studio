@@ -7,6 +7,8 @@ import {
   type AppRuntime,
 } from "./runtime";
 
+import { userMcpTokens } from "./mcp-tokens";
+
 const encoder = new TextEncoder();
 export const SESSION_COOKIE = "floorplan_session";
 const SESSION_SECONDS = 12 * 60 * 60;
@@ -107,8 +109,11 @@ export async function requireUser(
     throw new RuleError("LOGIN_REQUIRED", "登录已过期，请重新登录。", 401);
   }
 }
-export async function requireUserMutation(request: Request) {
-  const runtime = await getRuntime(),
+export async function requireUserMutation(
+  request: Request,
+  provided?: AppRuntime,
+) {
+  const runtime = provided ?? (await getRuntime()),
     session = await requireUser(request, runtime);
   validateOrigin(request, runtime);
   if (
@@ -123,26 +128,42 @@ export async function requireUserMutation(request: Request) {
       "登录验证已更新，请刷新页面重试。",
       403,
     );
+  return session;
 }
-export async function requireMcp(request: Request) {
-  const runtime = await getRuntime();
+export async function requireMcp(request: Request, provided?: AppRuntime) {
+  const runtime = provided ?? (await getRuntime());
   configuredOrigin(runtime, request);
-  let expected = runtime.env.MCP_TOKEN ?? runtime.env.FLOORPLAN_MCP_TOKEN;
-  if (!expected && runtime.mode === "local" && !authEnabled(runtime)) {
-    expected = await (await import("./repositories/local")).localToken();
+  let username: string | null = null;
+  if (authEnabled(runtime)) {
+    const config = settings(runtime);
+    const bearer =
+      request.headers
+        .get("authorization")
+        ?.match(/^Bearer (fp_[a-f0-9]{64})$/i)?.[1] ?? "";
+    if (!(await (await userMcpTokens(runtime)).verify(config.username, bearer)))
+      throw new RuleError(
+        "UNAUTHORIZED",
+        "MCP 访问令牌无效，请登录网站生成或重置个人令牌。",
+        401,
+      );
+    username = config.username;
+  } else {
+    const expected =
+      runtime.env.MCP_TOKEN ??
+      runtime.env.FLOORPLAN_MCP_TOKEN ??
+      (await (await import("./repositories/local")).localToken());
+    if (
+      !(await constantTimeEqual(
+        request.headers.get("authorization") ?? "",
+        `Bearer ${expected}`,
+      ))
+    )
+      throw new RuleError("UNAUTHORIZED", "MCP 访问令牌无效。", 401);
   }
-  if (!expected || expected.length < 32)
-    throw new RuleError(
-      "MISSING_MCP_CONFIGURATION",
-      "请配置至少 32 位的 MCP_TOKEN。",
-      503,
-    );
-  const actual = request.headers.get("authorization") ?? "";
-  if (!(await constantTimeEqual(actual, `Bearer ${expected}`)))
-    throw new RuleError("UNAUTHORIZED", "MCP 访问令牌无效。", 401);
   const origin = request.headers.get("origin");
   if (origin && origin !== configuredOrigin(runtime, request))
     throw new RuleError("ORIGIN_REJECTED", "MCP 请求来源无效。", 403);
+  return { username };
 }
 
 const localAttempts = new Map<string, { attempts: number; expires: number }>();

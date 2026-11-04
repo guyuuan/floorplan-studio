@@ -12,7 +12,6 @@
 | `APP_USERNAME`          | 网站登录账号                                                         |
 | `APP_PASSWORD`          | 网站登录密码，至少 12 位                                             |
 | `SESSION_SECRET`        | 签名会话的独立随机密钥，至少 32 位                                   |
-| `MCP_TOKEN`             | 外部 Agent 的独立随机令牌，至少 32 位                                |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 账户 ID                                                   |
 | `CLOUDFLARE_API_TOKEN`  | 部署 CLI 使用的 Cloudflare API Token；已有有效 Wrangler 登录时可省略 |
 | `FLOORPLAN_D1_ID`       | 创建数据库后返回的 UUID                                              |
@@ -21,9 +20,9 @@
 | `FLOORPLAN_WORKER_NAME` | 可选，默认 `floorplan-studio`                                        |
 | `FLOORPLAN_CPU_MS`      | 可选，自定义 CPU 限额，需与账户套餐允许的范围一致                    |
 
-分别运行两次 `openssl rand -hex 32` 生成会话密钥与 MCP 令牌。密码、会话密钥和 MCP 令牌必须不同。不要把真实值提交 Git 或发到聊天中。
+运行 `openssl rand -hex 32` 生成会话密钥，且应与密码不同。MCP 令牌在登录后按账号生成，无需配置全站 `MCP_TOKEN`。不要把真实值提交 Git 或发到聊天中。
 
-域名、账户及资源配置进入生成的 Wrangler 配置；网站账号密码、会话密钥与 MCP 令牌通过标准输入写入 **Workers Secrets**，不会写进前端或生成的配置文件。Cloudflare API Token 只用于部署，不提供给网站或 Agent。
+域名、账户及资源配置进入生成的 Wrangler 配置；网站账号密码与会话密钥通过标准输入写入 **Workers Secrets**，不会写进前端或生成的配置文件。Cloudflare API Token 只用于部署，不提供给网站或 Agent。
 
 ## 首次部署
 
@@ -49,7 +48,7 @@ node --env-file=.env.deploy scripts/deploy-cloudflare.mjs
 
 首次发布到 Secrets 写入完成前，业务接口会拒绝访问，不会降级为免登录模式；若 Secrets 写入失败，修复授权后重新执行部署命令。部署成功后，使用真实域名完成登录、创建项目、上传图片、2D/3D、导出及 MCP 验收。后续部署沿用相同命令，D1 仅执行尚未应用的迁移。
 
-`APP_ORIGIN` 也是会话签发来源、CSRF 来源校验和 MCP 地址的依据。修改域名后重新部署并重新登录。修改密码时同时轮换 `SESSION_SECRET`，立即使已有会话失效；轮换 `MCP_TOKEN` 后需要同步更新外部客户端。
+`APP_ORIGIN` 也是会话签发来源、CSRF 来源校验和 MCP 地址的依据。修改域名后重新部署并重新登录。修改密码时同时轮换 `SESSION_SECRET`，立即使已有会话失效；修改会话密钥或网站域名后，个人 MCP 令牌也会失效，需在网站重置后更新外部客户端。
 
 ## 本地 Workers 预览
 
@@ -74,7 +73,11 @@ url = "https://plan.example.com/api/mcp"
 bearer_token_env_var = "FLOORPLAN_MCP_TOKEN"
 ```
 
-在启动客户端的环境中设置 `FLOORPLAN_MCP_TOKEN` 为部署时的 `MCP_TOKEN`。其他客户端如支持 HTTP Headers，可配置 `Authorization: Bearer <MCP_TOKEN>`。网页只展示占位符，不会返回实际令牌。
+登录网站后，点击「连接 Agent」→「生成我的令牌」，复制返回的 MCP 配置。完整令牌只在生成时展示一次，关闭后无法再次读取；需要更换时点击「重置我的令牌」，旧令牌立即失效。服务端只保存令牌哈希，按用户名独立存入 D1；本地登录模式写入私有数据目录。
+
+在启动 Codex 客户端的环境中设置 `FLOORPLAN_MCP_TOKEN` 为刚生成的个人令牌。其他客户端可直接使用生成配置中的 `Authorization: Bearer <个人令牌>`。网页登录和 CSRF 验证后才允许生成或重置；MCP 令牌不能用于这些网页操作。旧的全站 `MCP_TOKEN` 不再授权启用登录的服务，可从 Workers Secrets 删除。
+
+新增迁移 `0002_user_mcp_tokens.sql` 必须随部署执行。现有网站仍是环境变量配置的个人单账号，未增加多账号注册或项目隔离功能。
 
 MCP 令牌允许读写个人项目，但不能修改墙体分类、确认结构或调用用户迁移接口。结构核对仍需用户登录网页操作。网站 Cookie 不能替代 MCP 令牌，MCP 令牌也不能替代网页登录。
 

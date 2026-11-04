@@ -144,12 +144,53 @@ try {
     headers: { cookie, "if-none-match": '"revision:0"' },
   });
   assert.equal(r.status, 304);
+  // Personal credential issuance requires the same user session + CSRF protections as edits.
+  r = await fetch(`${origin}/api/setup`, {
+    method: "POST",
+    headers: { origin, "content-type": "application/json" },
+    body: JSON.stringify({ action: "create" }),
+  });
+  assert.equal(r.status, 401);
+  r = await fetch(`${origin}/api/setup`, {
+    method: "POST",
+    headers: { origin, cookie, "content-type": "application/json" },
+    body: JSON.stringify({ action: "create" }),
+  });
+  assert.equal(r.status, 403);
+  const issue = async (action: "create" | "rotate") => {
+    const response = await fetch(`${origin}/api/setup`, {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    return response.json();
+  };
+  const generated = await issue("create");
+  assert.equal(generated.credential.username, testEnv.APP_USERNAME);
+  assert.equal(generated.credential.issued, true);
+  const personalToken =
+    generated.mcpServers["floorplan-studio"].headers.Authorization.slice(7);
+  assert.match(personalToken, /^fp_[a-f0-9]{64}$/);
+  const reread = await (
+    await fetch(`${origin}/api/setup`, { headers: { cookie } })
+  ).json();
+  assert.equal(reread.credential.exists, true);
+  assert.ok(!JSON.stringify(reread).includes(personalToken));
+  const duplicate = await issue("create");
+  assert.equal(duplicate.credential.issued, false);
+  assert.ok(!JSON.stringify(duplicate).includes(personalToken));
+  r = await fetch(`${origin}/api/agent/projects`, {
+    headers: { authorization: `Bearer ${testEnv.MCP_TOKEN}` },
+  });
+  assert.equal(r.status, 401);
   const client = new Client({ name: "worker-smoke", version: "1" });
   clients.push(client);
   await client.connect(
     new StreamableHTTPClientTransport(new URL(`${origin}/api/mcp`), {
       requestInit: {
-        headers: { authorization: `Bearer ${testEnv.MCP_TOKEN}` },
+        headers: { authorization: `Bearer ${personalToken}` },
       },
     }),
   );
@@ -182,7 +223,7 @@ try {
     method: "POST",
     headers: {
       origin,
-      authorization: `Bearer ${testEnv.MCP_TOKEN}`,
+      authorization: `Bearer ${personalToken}`,
       "content-type": "application/json",
     },
     body: JSON.stringify({
@@ -270,11 +311,30 @@ try {
   assert.ok(
     (source.content as { type: string }[]).some((c) => c.type === "image"),
   );
+  const rotatedConfig = await issue("rotate");
+  const rotatedToken =
+    rotatedConfig.mcpServers["floorplan-studio"].headers.Authorization.slice(7);
+  assert.notEqual(rotatedToken, personalToken);
+  r = await fetch(`${origin}/api/agent/projects`, {
+    headers: { authorization: `Bearer ${personalToken}` },
+  });
+  assert.equal(r.status, 401);
+  const freshClient = new Client({
+    name: "rotated-credential-smoke",
+    version: "1",
+  });
+  clients.push(freshClient);
+  await freshClient.connect(
+    new StreamableHTTPClientTransport(new URL(`${origin}/api/mcp`), {
+      requestInit: { headers: { authorization: `Bearer ${rotatedToken}` } },
+    }),
+  );
+  assert.equal((await freshClient.listTools()).tools.length, 8);
   r = await fetch(`${origin}/api/auth/logout`, { method: "POST", headers });
   assert.equal(r.status, 200);
   assert.match(r.headers.get("set-cookie")!, /Max-Age=0/);
   console.log(
-    "Workers smoke passed: login, CSRF, private APIs, D1/R2, conditional polling, remote MCP, human-only review, revision conflicts, PNG, original image and JSON export.",
+    "Workers smoke passed: login, CSRF, per-user token issuance and revocation, private APIs, D1/R2, conditional polling, remote MCP, human-only review, revision conflicts, PNG, original image and JSON export.",
   );
 } catch (e) {
   console.error(logs);
