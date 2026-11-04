@@ -9,6 +9,8 @@ const env = {
   APP_ORIGIN: "https://floorplan.example.com",
   APP_USERNAME: "example-owner",
   APP_PASSWORD: "example-owner-password",
+  RESEND_API_KEY: "example-resend-key",
+  EMAIL_FROM: "Floorplan <noreply@example.com>",
   SESSION_SECRET: "example-session-secret-more-than-32-characters",
   CLOUDFLARE_ACCOUNT_ID: "a".repeat(32),
   FLOORPLAN_D1_ID: "11111111-1111-1111-1111-111111111111",
@@ -36,6 +38,26 @@ test("deployment configuration uses environment-provided domain and bindings wit
   assert.equal(config.workers_dev, false);
   assert.equal(config.preview_urls, false);
   assert.equal(config.d1_databases[0].database_id, env.FLOORPLAN_D1_ID);
-  for (const secret of [env.APP_PASSWORD, env.SESSION_SECRET])
+  for (const secret of [
+    env.APP_PASSWORD,
+    env.SESSION_SECRET,
+    env.RESEND_API_KEY,
+  ])
     assert.ok(!text.includes(secret));
+});
+
+test("new multi-user deployments do not require an owner password, but require mail delivery and a valid registration switch", () => {
+  assert.doesNotThrow(() =>
+    deploymentSettings({
+      ...env,
+      APP_USERNAME: undefined,
+      APP_PASSWORD: undefined,
+    }),
+  );
+  assert.throws(() =>
+    deploymentSettings({ ...env, RESEND_API_KEY: undefined }),
+  );
+  assert.throws(() =>
+    deploymentSettings({ ...env, REGISTRATION_ENABLED: "typo" }),
+  );
 });

@@ -11,6 +11,7 @@ type Row = {
   state_key: string;
   created_at: string;
   updated_at: string;
+  legacy_files: number;
 };
 type StoredProject = Omit<Project, "history" | "future"> & {
   historyKeys: string[];
@@ -36,11 +37,12 @@ export class CloudflareRepository implements ProjectRepository {
   constructor(
     private db: D1Database,
     private files: R2Bucket,
+    private ownerId: string,
   ) {}
   private async row(id: string) {
     const row = await this.db
-      .prepare("SELECT * FROM projects WHERE id = ?")
-      .bind(valid(id))
+      .prepare("SELECT * FROM projects WHERE id = ? AND owner_id = ?")
+      .bind(valid(id), this.ownerId)
       .first<Row>();
     if (!row) throw new RuleError("NOT_FOUND", "项目不存在。", 404);
     return row;
@@ -48,8 +50,9 @@ export class CloudflareRepository implements ProjectRepository {
   async list(): Promise<ProjectSummary[]> {
     const { results } = await this.db
       .prepare(
-        "SELECT id,name,stage,revision,updated_at FROM projects ORDER BY updated_at DESC",
+        "SELECT id,name,stage,revision,updated_at FROM projects WHERE owner_id=? ORDER BY updated_at DESC",
       )
+      .bind(this.ownerId)
       .all<Row>();
     return results.map((r) => ({
       id: r.id,
@@ -99,7 +102,7 @@ export class CloudflareRepository implements ProjectRepository {
         hash = await digest(text),
         known = this.knownSnapshots.get(`${project.id}:${hash}`);
       if (known) return known;
-      const key = `snapshots/${project.id}/${hash}.json`;
+      const key = `snapshots/${this.ownerId}/${project.id}/${hash}.json`;
       await this.files.put(key, text, {
         httpMetadata: { contentType: "application/json" },
       });
@@ -111,7 +114,7 @@ export class CloudflareRepository implements ProjectRepository {
       Promise.all(history.map(saveSnapshot)),
       Promise.all(future.map(saveSnapshot)),
     ]);
-    const key = `states/${project.id}/${project.revision}-${crypto.randomUUID()}.json`;
+    const key = `states/${this.ownerId}/${project.id}/${project.revision}-${crypto.randomUUID()}.json`;
     await this.files.put(
       key,
       JSON.stringify({
@@ -126,7 +129,7 @@ export class CloudflareRepository implements ProjectRepository {
       if (expectedRevision === null) {
         const result = await this.db
           .prepare(
-            "INSERT INTO projects(id,name,stage,revision,state_key,created_at,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING",
+            "INSERT INTO projects(id,name,stage,revision,state_key,created_at,updated_at,owner_id) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING",
           )
           .bind(
             project.id,
@@ -136,13 +139,14 @@ export class CloudflareRepository implements ProjectRepository {
             key,
             project.createdAt,
             project.updatedAt,
+            this.ownerId,
           )
           .run();
         changes = result.meta.changes;
       } else {
         const result = await this.db
           .prepare(
-            "UPDATE projects SET name=?,stage=?,revision=?,state_key=?,updated_at=? WHERE id=? AND revision=?",
+            "UPDATE projects SET name=?,stage=?,revision=?,state_key=?,updated_at=? WHERE id=? AND revision=? AND owner_id=?",
           )
           .bind(
             project.name,
@@ -152,6 +156,7 @@ export class CloudflareRepository implements ProjectRepository {
             project.updatedAt,
             project.id,
             expectedRevision,
+            this.ownerId,
           )
           .run();
         changes = result.meta.changes;
@@ -171,7 +176,7 @@ export class CloudflareRepository implements ProjectRepository {
     }
   }
   private binaryKey(id: string, kind: "source" | "png") {
-    return `files/${valid(id)}/${kind}`;
+    return `files/${this.ownerId}/${valid(id)}/${kind}`;
   }
   async putBinary(
     id: string,
@@ -201,7 +206,12 @@ export class CloudflareRepository implements ProjectRepository {
     }
   }
   async getBinary(id: string, kind: "source" | "png") {
-    const object = await this.files.get(this.binaryKey(id, kind));
+    const row = await this.row(id);
+    const object =
+      (await this.files.get(this.binaryKey(id, kind))) ??
+      (row.legacy_files
+        ? await this.files.get(`files/${valid(id)}/${kind}`)
+        : null);
     if (!object) throw new RuleError("NOT_FOUND", "图片不存在。", 404);
     return new Uint8Array(await object.arrayBuffer());
   }

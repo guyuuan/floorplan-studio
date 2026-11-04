@@ -11,9 +11,9 @@ export const root = path.resolve(
 export function deploymentSettings(env = process.env) {
   const required = [
     "APP_ORIGIN",
-    "APP_USERNAME",
-    "APP_PASSWORD",
     "SESSION_SECRET",
+    "RESEND_API_KEY",
+    "EMAIL_FROM",
     "CLOUDFLARE_ACCOUNT_ID",
     "FLOORPLAN_D1_ID",
   ];
@@ -34,9 +34,22 @@ export function deploymentSettings(env = process.env) {
     origin.hostname.endsWith(".example")
   )
     throw new Error("APP_ORIGIN 必须是计划绑定的真实 HTTPS 域名，不包含路径。");
-  if (env.APP_PASSWORD.length < 12 || env.SESSION_SECRET.length < 32)
-    throw new Error("APP_PASSWORD 至少 12 位，SESSION_SECRET 至少 32 位。");
-  if (env.APP_PASSWORD === env.SESSION_SECRET)
+  if (env.SESSION_SECRET.length < 32)
+    throw new Error("SESSION_SECRET 至少 32 位。");
+  if (
+    !!env.APP_USERNAME !== !!env.APP_PASSWORD ||
+    (env.APP_PASSWORD &&
+      (env.APP_PASSWORD.length < 8 || env.APP_PASSWORD.length > 256))
+  )
+    throw new Error(
+      "迁移原账号时需同时配置 APP_USERNAME 和 8–256 位 APP_PASSWORD。",
+    );
+  if (
+    env.REGISTRATION_ENABLED &&
+    !["true", "false"].includes(env.REGISTRATION_ENABLED)
+  )
+    throw new Error("REGISTRATION_ENABLED 只能为 true 或 false。");
+  if (env.APP_PASSWORD && env.APP_PASSWORD === env.SESSION_SECRET)
     throw new Error("登录密码和会话密钥必须分别设置。");
   if (
     !/^[a-f0-9]{32}$/i.test(env.CLOUDFLARE_ACCOUNT_ID) ||
@@ -68,7 +81,12 @@ export async function writeDeploymentConfig(env = process.env) {
     },
     services: [{ binding: "WORKER_SELF_REFERENCE", service: settings.name }],
     routes: [{ pattern: settings.hostname, custom_domain: true }],
-    vars: { FLOORPLAN_STORAGE: "cloudflare", APP_ORIGIN: settings.origin },
+    vars: {
+      FLOORPLAN_STORAGE: "cloudflare",
+      APP_ORIGIN: settings.origin,
+      REGISTRATION_ENABLED: env.REGISTRATION_ENABLED ?? "true",
+      EMAIL_FROM: env.EMAIL_FROM,
+    },
   });
   config.d1_databases = [
     {

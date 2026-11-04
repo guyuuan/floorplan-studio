@@ -1,19 +1,21 @@
 import { requireUser } from "@/server/auth";
-import { createProject, inspectImage, listProjects } from "@/server/store";
+import { getProjectService, inspectImage } from "@/server/store";
 import { errorResponse, requireBrowser } from "@/server/http";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   try {
-    await requireUser(request);
-    return Response.json(await listProjects());
+    const identity = await requireUser(request);
+    return Response.json(
+      await (await getProjectService(identity?.userId)).listProjects(),
+    );
   } catch (e) {
     return errorResponse(e);
   }
 }
 export async function POST(request: Request) {
   try {
-    await requireBrowser(request);
+    const identity = await requireBrowser(request);
     const data = await request.formData();
     const name = String(data.get("name") ?? "我的户型");
     const demo = data.get("demo") === "true";
@@ -32,9 +34,14 @@ export async function POST(request: Request) {
     }
     if (!demo && !image)
       return Response.json({ error: "请上传户型图片。" }, { status: 400 });
-    return Response.json(await createProject(name, image, demo), {
-      status: 201,
-    });
+    return Response.json(
+      await (
+        await getProjectService(identity?.userId)
+      ).createProject(name, image, demo),
+      {
+        status: 201,
+      },
+    );
   } catch (e) {
     return errorResponse(e);
   }

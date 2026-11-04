@@ -28,7 +28,7 @@ test("personal tokens are unique, bound to users and persisted only as hashes", 
   fixture(async (service, directory) => {
     const alice = await service.issue("alice"),
       bob = await service.issue("bob");
-    assert.match(alice.token!, /^fp_[a-f0-9]{64}$/);
+    assert.match(alice.token!, /^fp_alice_[a-f0-9]{64}$/);
     assert.notEqual(alice.token, bob.token);
     assert.equal(await service.verify("alice", alice.token!), true);
     assert.equal(await service.verify("bob", alice.token!), false);

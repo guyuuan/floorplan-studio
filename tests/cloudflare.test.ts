@@ -19,13 +19,16 @@ const mf = new Miniflare(
 );
 const db = (await mf.getD1Database("DB")) as unknown as D1Database,
   files = (await mf.getR2Bucket("FILES")) as unknown as R2Bucket;
-await db.exec(
-  (await readFile("migrations/0001_cloud_storage.sql", "utf8")).replace(
-    /\n/g,
-    " ",
-  ),
-);
-const repository = () => new CloudflareRepository(db, files),
+for (const file of [
+  "0001_cloud_storage.sql",
+  "0002_user_mcp_tokens.sql",
+  "0003_multi_user.sql",
+]) {
+  await db.exec(
+    (await readFile(`migrations/${file}`, "utf8")).replace(/\n/g, " "),
+  );
+}
+const repository = () => new CloudflareRepository(db, files, "test-owner"),
   service = () => new ProjectService(repository());
 after(() => mf.dispose());
 
@@ -143,7 +146,8 @@ test("owner migration preserves ID, revision and history and never overwrites an
   assert.equal((await service().getProject(moved.id)).name, moved.name);
 });
 test("R2 source uploads are immutable and an identical retry is safe", async () => {
-  const id = crypto.randomUUID(),
+  const p = await service().createProject("immutable source", undefined, true),
+    id = p.id,
     repo = repository();
   await repo.putBinary(id, "source", new Uint8Array([1, 2, 3]), "image/png");
   await repo.putBinary(id, "source", new Uint8Array([1, 2, 3]), "image/png");
@@ -157,89 +161,157 @@ test("R2 source uploads are immutable and an identical retry is safe", async () 
   );
 });
 
-test("real D1: per-user MCP credentials persist, reject the legacy shared token and revoke atomically", async () => {
+test("real D1: registered users own their MCP credentials, sessions and projects", async () => {
+  const { accounts } = await import("../src/server/accounts");
   const { userMcpTokens } = await import("../src/server/mcp-tokens");
-  const { requireMcp } = await import("../src/server/auth");
-  await db.exec(
-    (await readFile("migrations/0002_user_mcp_tokens.sql", "utf8")).replace(
-      /\n/g,
-      " ",
-    ),
-  );
+  const { requireMcp, requireUser, issueSession } =
+    await import("../src/server/auth");
+  const outbox: import("../src/server/mail").AccountMail[] = [];
   const runtime = {
     mode: "cloudflare" as const,
     env: {
       DB: db,
       APP_ORIGIN: "https://floorplan.example.com",
-      APP_USERNAME: "alice",
-      APP_PASSWORD: "test-password-more-than-12",
-      SESSION_SECRET: "test-session-secret-more-than-32-characters",
-      MCP_TOKEN: "legacy-global-token-more-than-32-characters",
+      SESSION_SECRET: "test-session-secret-for-real-d1-users-more-than-32",
+      MCP_TOKEN: "old-shared-token-more-than-32-characters",
     },
   };
-  const tokens = await userMcpTokens(runtime);
-  const race = await Promise.all(
-    Array.from({ length: 4 }, () => tokens.issue("alice")),
-  );
-  assert.equal(race.filter((r) => r.token).length, 1);
-  const alice = race.find((r) => r.token)!,
-    bob = await tokens.issue("bob");
-  const request = (token: string, origin?: string) =>
-    new Request("https://floorplan.example.com/api/mcp", {
-      headers: {
-        authorization: `Bearer ${token}`,
-        ...(origin ? { origin } : {}),
-      },
-    });
-  assert.deepEqual(await requireMcp(request(alice.token!), runtime), {
-    username: "alice",
+  const users = await accounts(runtime, {
+    async send(mail) {
+      outbox.push(mail);
+    },
   });
-  await assert.rejects(
-    requireMcp(request(bob.token!), runtime),
-    (e) => e instanceof RuleError && e.status === 401,
-  );
+  const password = "test-account-password";
+  for (const name of ["alice", "bob"]) {
+    await users.register({
+      username: name,
+      email: `${name}@example.com`,
+      password,
+    });
+    await users.verify(
+      new URLSearchParams(new URL(outbox.at(-1)!.url).hash.slice(1)).get(
+        "token",
+      )!,
+    );
+  }
+  const alice = (await users.repository.byUsername("alice"))!,
+    bob = (await users.repository.byUsername("bob"))!;
+  const aliceTokens = await userMcpTokens(runtime, alice.version),
+    bobTokens = await userMcpTokens(runtime, bob.version);
+  const a = await aliceTokens.issue(alice.id),
+    b = await bobTokens.issue(bob.id);
+  const request = (token: string) =>
+    new Request("https://floorplan.example.com/api/mcp", {
+      headers: { authorization: `Bearer ${token}` },
+    });
+  assert.equal((await requireMcp(request(a.token!), runtime)).userId, alice.id);
+  assert.equal((await requireMcp(request(b.token!), runtime)).userId, bob.id);
   await assert.rejects(
     requireMcp(request(runtime.env.MCP_TOKEN), runtime),
     (e) => e instanceof RuleError && e.status === 401,
   );
-  await assert.rejects(
-    requireMcp(request(alice.token!, "https://attacker.example"), runtime),
-    (e) => e instanceof RuleError && e.status === 403,
+  const aliceRepo = new CloudflareRepository(db, files, alice.id),
+    bobRepo = new CloudflareRepository(db, files, bob.id);
+  const aliceService = new ProjectService(aliceRepo),
+    bobService = new ProjectService(bobRepo);
+  const p = await aliceService.createProject("alice private", undefined, true);
+  await aliceService.savePng(
+    p.id,
+    new Uint8Array(await readFile("examples/sample-floorplan.png")),
   );
-  const newInstance = await userMcpTokens(runtime);
-  assert.equal(await newInstance.verify("alice", alice.token!), true);
-  assert.equal((await newInstance.issue("alice")).token, null);
-  const rotated = await newInstance.issue("alice", true);
+  assert.equal((await bobService.listProjects()).length, 0);
+  for (const action of [
+    () => bobService.getProject(p.id),
+    () => bobService.revision(p.id),
+    () => bobService.getPng(p.id),
+    () => bobService.exportProject(p.id),
+    () => bobService.mutateProject(p.id, 0, [], "agent"),
+  ])
+    await assert.rejects(
+      action,
+      (e) => e instanceof RuleError && e.status === 404,
+    );
+  const forged = structuredClone(p);
+  forged.name = "cross-user overwrite";
   await assert.rejects(
-    requireMcp(request(alice.token!), runtime),
+    bobRepo.save(forged, 0),
+    (e) => e instanceof RuleError && e.status === 409,
+  );
+  assert.equal((await aliceService.getProject(p.id)).name, "alice private");
+  const cookie = await issueSession(runtime, request(a.token!), alice);
+  await users.forgot("alice@example.com");
+  const reset = new URLSearchParams(
+    new URL(outbox.at(-1)!.url).hash.slice(1),
+  ).get("token")!;
+  const resets = await Promise.allSettled([
+    users.reset(reset, "alice-new-password"),
+    users.reset(reset, "alice-other-password"),
+  ]);
+  assert.equal(resets.filter((r) => r.status === "fulfilled").length, 1);
+  await assert.rejects(
+    requireMcp(request(a.token!), runtime),
     (e) => e instanceof RuleError && e.status === 401,
   );
-  assert.deepEqual(await requireMcp(request(rotated.token!), runtime), {
-    username: "alice",
-  });
-  assert.equal(await tokens.verify("bob", bob.token!), true);
-  const changedUser = {
-    ...runtime,
-    env: { ...runtime.env, APP_USERNAME: "bob" },
-  };
-  assert.deepEqual(await requireMcp(request(bob.token!), changedUser), {
-    username: "bob",
-  });
   await assert.rejects(
-    requireMcp(request(rotated.token!), changedUser),
+    requireUser(
+      new Request(runtime.env.APP_ORIGIN, {
+        headers: { cookie: `floorplan_session=${cookie.token}` },
+      }),
+      runtime,
+    ),
     (e) => e instanceof RuleError && e.status === 401,
   );
-  const changedSecret = {
-    ...runtime,
+  assert.equal((await requireMcp(request(b.token!), runtime)).userId, bob.id);
+});
+
+test("only the original owner can claim legacy D1/R2 data, including its old binary keys", async () => {
+  const { accounts } = await import("../src/server/accounts"),
+    { claimLegacyProjects } =
+      await import("../src/server/repositories/legacy-projects");
+  const runtime = {
+    mode: "cloudflare" as const,
     env: {
-      ...runtime.env,
-      SESSION_SECRET: "different-test-session-key-more-than-32-characters",
+      DB: db,
+      APP_ORIGIN: "https://floorplan.example.com",
+      APP_USERNAME: "original-owner",
+      APP_PASSWORD: "original-owner-password",
+      SESSION_SECRET: "owner-migration-session-key-more-than-32-characters",
     },
   };
-  await assert.rejects(
-    requireMcp(request(rotated.token!), changedSecret),
-    (e) => e instanceof RuleError && e.status === 401,
+  const accountService = await accounts(runtime),
+    owner = (await accountService.bootstrap())!;
+  const p = await service().createProject("legacy unclaimed", undefined, true);
+  await db
+    .prepare("UPDATE projects SET owner_id=NULL WHERE id=?")
+    .bind(p.id)
+    .run();
+  await files.put(`files/${p.id}/source`, "legacy source");
+  const outsider = (await accountService.repository.byUsername("bob"))!;
+  await claimLegacyProjects(runtime, outsider);
+  assert.equal(
+    (await db
+      .prepare("SELECT owner_id FROM projects WHERE id=?")
+      .bind(p.id)
+      .first<{ owner_id: string | null }>())!.owner_id,
+    null,
   );
-  const stored = await db.prepare("SELECT * FROM user_mcp_tokens").all();
-  assert.ok(!JSON.stringify(stored.results).includes(rotated.token!));
+  await claimLegacyProjects(runtime, owner);
+  const ownerRepo = new CloudflareRepository(db, files, owner.id),
+    otherRepo = new CloudflareRepository(db, files, outsider.id);
+  assert.equal((await ownerRepo.get(p.id)).name, p.name);
+  assert.equal(
+    new TextDecoder().decode(await ownerRepo.getBinary(p.id, "source")),
+    "legacy source",
+  );
+  await assert.rejects(
+    otherRepo.getBinary(p.id, "source"),
+    (e) => e instanceof RuleError && e.status === 404,
+  );
+  const mine = await new ProjectService(otherRepo).createProject(
+    "new user project",
+    undefined,
+    true,
+  );
+  await claimLegacyProjects(runtime, owner);
+  assert.equal((await otherRepo.get(mine.id)).name, "new user project");
 });

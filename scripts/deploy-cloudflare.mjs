@@ -52,6 +52,8 @@ try {
     APP_USERNAME: process.env.APP_USERNAME,
     APP_PASSWORD: process.env.APP_PASSWORD,
     SESSION_SECRET: process.env.SESSION_SECRET,
+    RESEND_API_KEY: process.env.RESEND_API_KEY,
+    APP_OWNER_EMAIL: process.env.APP_OWNER_EMAIL,
   };
   await run(["secret", "bulk", "--config", config], JSON.stringify(secrets));
   console.log(

@@ -9,6 +9,11 @@ export type AppEnv = {
   APP_ORIGIN?: string;
   APP_USERNAME?: string;
   APP_PASSWORD?: string;
+  APP_OWNER_EMAIL?: string;
+  REGISTRATION_ENABLED?: string;
+  RESEND_API_KEY?: string;
+  EMAIL_FROM?: string;
+  EMAIL_API_URL?: string;
   SESSION_SECRET?: string;
   MCP_TOKEN?: string;
   FLOORPLAN_MCP_TOKEN?: string;

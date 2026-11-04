@@ -11,6 +11,8 @@ export interface McpTokenStore {
     replace: boolean,
   ): Promise<boolean>;
 }
+export const tokenUserId = (token: string) =>
+  token.match(/^fp_([a-zA-Z0-9-]{1,100})_[a-f0-9]{64}$/)?.[1] ?? null;
 const hex = (bytes: Uint8Array) =>
   Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 export class UserMcpTokens {
@@ -35,7 +37,7 @@ export class UserMcpTokens {
     return { exists: !!record, createdAt: record?.createdAt ?? null };
   }
   async issue(username: string, replace = false) {
-    const token = `fp_${hex(crypto.getRandomValues(new Uint8Array(32)))}`;
+    const token = `fp_${username}_${hex(crypto.getRandomValues(new Uint8Array(32)))}`;
     const record = {
       hash: await this.hash(username, token),
       createdAt: new Date().toISOString(),
@@ -44,7 +46,7 @@ export class UserMcpTokens {
     return { token: saved ? token : null, ...(await this.status(username)) };
   }
   async verify(username: string, token: string) {
-    if (!/^fp_[a-f0-9]{64}$/.test(token)) return false;
+    if (tokenUserId(token) !== username) return false;
     const record = await this.store.get(username);
     if (!record || !/^[a-f0-9]{64}$/.test(record.hash)) return false;
     const actual = await this.hash(username, token);
@@ -54,7 +56,7 @@ export class UserMcpTokens {
     return delta === 0;
   }
 }
-export async function userMcpTokens(runtime: AppRuntime) {
+export async function userMcpTokens(runtime: AppRuntime, version = 0) {
   let store: McpTokenStore;
   if (runtime.mode === "cloudflare") {
     const db = runtime.env.DB;
@@ -93,6 +95,7 @@ export async function userMcpTokens(runtime: AppRuntime) {
     JSON.stringify([
       runtime.env.APP_ORIGIN ?? "local",
       runtime.env.SESSION_SECRET,
+      version,
     ]),
   );
 }

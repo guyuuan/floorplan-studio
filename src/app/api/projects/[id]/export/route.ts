@@ -1,5 +1,5 @@
 import { requireUser } from "@/server/auth";
-import { exportProject } from "@/server/store";
+import { getProjectService } from "@/server/store";
 import { errorResponse } from "@/server/http";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,13 +8,18 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    await requireUser(request);
-    return Response.json(await exportProject((await params).id), {
-      headers: {
-        "Content-Disposition": 'attachment; filename="floorplan.json"',
-        "Cache-Control": "no-store",
+    const identity = await requireUser(request);
+    return Response.json(
+      await (
+        await getProjectService(identity?.userId)
+      ).exportProject((await params).id),
+      {
+        headers: {
+          "Content-Disposition": 'attachment; filename="floorplan.json"',
+          "Cache-Control": "no-store",
+        },
       },
-    });
+    );
   } catch (e) {
     return errorResponse(e);
   }

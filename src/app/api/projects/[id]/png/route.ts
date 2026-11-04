@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 type Context = { params: Promise<{ id: string }> };
 export async function POST(request: Request, { params }: Context) {
   try {
-    await requireBrowser(request);
+    const identity = await requireBrowser(request);
     const id = (await params).id;
     const reader = request.body?.getReader();
     if (!reader) throw new RuleError("EMPTY_BODY", "PNG 内容为空。", 400);
@@ -23,7 +23,9 @@ export async function POST(request: Request, { params }: Context) {
       }
       chunks.push(value);
     }
-    await (await getProjectService()).savePng(id, Buffer.concat(chunks));
+    await (
+      await getProjectService(identity?.userId)
+    ).savePng(id, Buffer.concat(chunks));
     return Response.json(
       { ok: true, url: `/api/projects/${id}/png` },
       { headers: { "Cache-Control": "no-store" } },
@@ -34,8 +36,10 @@ export async function POST(request: Request, { params }: Context) {
 }
 export async function GET(request: Request, { params }: Context) {
   try {
-    await requireUser(request);
-    const bytes = await (await getProjectService()).getPng((await params).id);
+    const identity = await requireUser(request);
+    const bytes = await (
+      await getProjectService(identity?.userId)
+    ).getPng((await params).id);
     return new Response(new Uint8Array(bytes), {
       headers: {
         "Content-Type": "image/png",

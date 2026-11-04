@@ -2356,3 +2356,23 @@ h3 {
   color: #acb69e;
   text-align: center;
 }
+
+.auth-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px 20px;
+  margin-top: 22px;
+  font-size: 13px;
+  color: var(--green);
+}
+.auth-links a:hover {
+  text-decoration: underline;
+}
+.auth-success {
+  padding: 16px;
+  border-radius: 10px;
+  background: #eef3e8;
+  color: #43583d;
+  line-height: 1.7;
+}

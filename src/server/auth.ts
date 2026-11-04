@@ -7,12 +7,19 @@ import {
   type AppRuntime,
 } from "./runtime";
 
-import { userMcpTokens } from "./mcp-tokens";
+import { userMcpTokens, tokenUserId } from "./mcp-tokens";
+import { accounts } from "./accounts";
+import type { User } from "./repositories/accounts";
 
 const encoder = new TextEncoder();
 export const SESSION_COOKIE = "floorplan_session";
 const SESSION_SECONDS = 12 * 60 * 60;
-type Session = { username: string; csrf: string };
+export type Session = {
+  userId: string;
+  username: string;
+  csrf: string;
+  version: number;
+};
 export async function constantTimeEqual(a: string, b: string) {
   const [aa, bb] = await Promise.all([
     crypto.subtle.digest("SHA-256", encoder.encode(a)),
@@ -25,24 +32,14 @@ export async function constantTimeEqual(a: string, b: string) {
   return delta === 0;
 }
 export function settings(runtime: AppRuntime) {
-  const {
-    APP_USERNAME: username,
-    APP_PASSWORD: password,
-    SESSION_SECRET: secret,
-  } = runtime.env;
-  if (
-    !username ||
-    !password ||
-    password.length < 12 ||
-    !secret ||
-    secret.length < 32
-  )
+  const secret = runtime.env.SESSION_SECRET;
+  if (!secret || secret.length < 32)
     throw new RuleError(
       "MISSING_AUTH_CONFIGURATION",
-      "请配置 APP_USERNAME、至少 12 位的 APP_PASSWORD 和至少 32 位的 SESSION_SECRET。",
+      "请配置至少 32 位的 SESSION_SECRET。",
       503,
     );
-  return { username, password, secret };
+  return { secret };
 }
 export function validateOrigin(request: Request, runtime: AppRuntime) {
   const allowed = configuredOrigin(runtime, request),
@@ -54,16 +51,22 @@ export function validateOrigin(request: Request, runtime: AppRuntime) {
       403,
     );
 }
-export async function issueSession(runtime: AppRuntime, request: Request) {
+export async function issueSession(
+  runtime: AppRuntime,
+  request: Request,
+  user: User,
+) {
   const config = settings(runtime),
     origin = configuredOrigin(runtime, request),
     csrf = crypto.randomUUID();
   const token = await new SignJWT({
-    username: config.username,
+    username: user.username,
+    version: user.version,
     csrf,
     role: "user",
   })
     .setProtectedHeader({ alg: "HS256" })
+    .setSubject(user.id)
     .setIssuer(origin)
     .setAudience("floorplan-web")
     .setIssuedAt()
@@ -92,22 +95,39 @@ export async function requireUser(
     .find((s) => s.startsWith(`${SESSION_COOKIE}=`))
     ?.slice(SESSION_COOKIE.length + 1);
   if (!cookie) throw new RuleError("LOGIN_REQUIRED", "请先登录。", 401);
+  let payload;
   try {
-    const { payload } = await jwtVerify(cookie, encoder.encode(config.secret), {
-      algorithms: ["HS256"],
-      issuer: origin,
-      audience: "floorplan-web",
-    });
-    if (
-      payload.role !== "user" ||
-      payload.username !== config.username ||
-      typeof payload.csrf !== "string"
-    )
-      throw new Error();
-    return { username: config.username, csrf: payload.csrf };
+    payload = (
+      await jwtVerify(cookie, encoder.encode(config.secret), {
+        algorithms: ["HS256"],
+        issuer: origin,
+        audience: "floorplan-web",
+      })
+    ).payload;
   } catch {
     throw new RuleError("LOGIN_REQUIRED", "登录已过期，请重新登录。", 401);
   }
+  if (
+    payload.role !== "user" ||
+    typeof payload.sub !== "string" ||
+    typeof payload.csrf !== "string" ||
+    typeof payload.version !== "number"
+  )
+    throw new RuleError("LOGIN_REQUIRED", "登录已过期，请重新登录。", 401);
+  const user = await (await accounts(r)).repository.byId(payload.sub);
+  if (
+    !user ||
+    !user.emailVerified ||
+    user.version !== payload.version ||
+    user.username !== payload.username
+  )
+    throw new RuleError("LOGIN_REQUIRED", "登录已过期，请重新登录。", 401);
+  return {
+    userId: user.id,
+    username: user.username,
+    csrf: payload.csrf,
+    version: user.version,
+  };
 }
 export async function requireUserMutation(
   request: Request,
@@ -133,24 +153,40 @@ export async function requireUserMutation(
 export async function requireMcp(request: Request, provided?: AppRuntime) {
   const runtime = provided ?? (await getRuntime());
   configuredOrigin(runtime, request);
-  let username: string | null = null;
+  let identity: {
+    userId: string | null;
+    username: string | null;
+    version: number;
+  } = { userId: null, username: null, version: 0 };
   if (authEnabled(runtime)) {
-    const config = settings(runtime);
+    settings(runtime);
     const bearer =
-      request.headers
-        .get("authorization")
-        ?.match(/^Bearer (fp_[a-f0-9]{64})$/i)?.[1] ?? "";
-    if (!(await (await userMcpTokens(runtime)).verify(config.username, bearer)))
+      request.headers.get("authorization")?.match(/^Bearer (\S+)$/i)?.[1] ?? "";
+    const id = tokenUserId(bearer);
+    const user = id
+      ? await (await accounts(runtime)).repository.byId(id)
+      : null;
+    if (
+      !user ||
+      !user.emailVerified ||
+      !(await (
+        await userMcpTokens(runtime, user.version)
+      ).verify(user.id, bearer))
+    )
       throw new RuleError(
         "UNAUTHORIZED",
         "MCP 访问令牌无效，请登录网站生成或重置个人令牌。",
         401,
       );
-    username = config.username;
+    identity = {
+      userId: user.id,
+      username: user.username,
+      version: user.version,
+    };
   } else {
     const expected =
-      runtime.env.MCP_TOKEN ??
       runtime.env.FLOORPLAN_MCP_TOKEN ??
+      runtime.env.MCP_TOKEN ??
       (await (await import("./repositories/local")).localToken());
     if (
       !(await constantTimeEqual(
@@ -163,17 +199,26 @@ export async function requireMcp(request: Request, provided?: AppRuntime) {
   const origin = request.headers.get("origin");
   if (origin && origin !== configuredOrigin(runtime, request))
     throw new RuleError("ORIGIN_REJECTED", "MCP 请求来源无效。", 403);
-  return { username };
+  return identity;
 }
 
 const localAttempts = new Map<string, { attempts: number; expires: number }>();
 /** Increment before checking credentials so password guessing is bounded, including concurrent requests. */
-export async function checkLoginRate(request: Request, runtime: AppRuntime) {
+export async function checkLoginRate(
+  request: Request,
+  runtime: AppRuntime,
+  action = "login",
+  limit = 10,
+  subject?: string,
+) {
   const { secret } = settings(runtime),
-    ip = request.headers.get("cf-connecting-ip") ?? "local";
+    ip = subject ?? request.headers.get("cf-connecting-ip") ?? "local";
   const key = Array.from(
     new Uint8Array(
-      await crypto.subtle.digest("SHA-256", encoder.encode(`${secret}:${ip}`)),
+      await crypto.subtle.digest(
+        "SHA-256",
+        encoder.encode(`${secret}:${action}:${ip}`),
+      ),
     ),
   )
     .map((b) => b.toString(16).padStart(2, "0"))
@@ -202,7 +247,7 @@ export async function checkLoginRate(request: Request, runtime: AppRuntime) {
     localAttempts.set(key, next);
     attempts = next.attempts;
   }
-  if (attempts > 10)
+  if (attempts > limit)
     throw new RuleError(
       "RATE_LIMITED",
       "尝试次数过多，请在 15 分钟后重试。",

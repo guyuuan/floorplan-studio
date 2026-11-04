@@ -185,8 +185,8 @@ export class ProjectService {
     return this.repository.getBinary(id, "png");
   }
 }
-export async function getProjectService() {
-  return new ProjectService(await getRepository());
+export async function getProjectService(ownerId?: string | null) {
+  return new ProjectService(await getRepository(ownerId));
 }
 export const listProjects = async () =>
   (await getProjectService()).listProjects();

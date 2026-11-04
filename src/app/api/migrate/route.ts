@@ -5,9 +5,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   try {
-    await requireBrowser(request);
+    const identity = await requireBrowser(request);
     const result = await migrateProject(
-      await getProjectService(),
+      await getProjectService(identity?.userId),
       await limitedJson(request),
     );
     return Response.json(result, {

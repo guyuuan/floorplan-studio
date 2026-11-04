@@ -8,9 +8,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    await requireUser(request);
+    const identity = await requireUser(request);
     const id = (await params).id,
-      service = await getProjectService();
+      service = await getProjectService(identity?.userId);
     const revision = await service.revision(id),
       etag = `"revision:${revision}"`;
     if (request.headers.get("if-none-match") === etag)

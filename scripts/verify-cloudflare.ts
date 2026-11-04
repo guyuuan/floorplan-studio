@@ -3,6 +3,8 @@ import { parse } from "jsonc-parser";
 import { mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
@@ -14,7 +16,38 @@ const origin = "http://127.0.0.1:8788",
     APP_PASSWORD: "example-password-for-local-tests",
     SESSION_SECRET: "example-session-secret-for-local-tests-only",
     MCP_TOKEN: "example-mcp-token-for-local-tests-only",
+    REGISTRATION_ENABLED: "true",
+    RESEND_API_KEY: "local-email-stub-key",
+    EMAIL_FROM: "Floorplan <noreply@example.com>",
+    EMAIL_API_URL: "",
   };
+// Only synthetic mail is sent to this local stub; no email provider or real mailbox is contacted.
+const outbox: { to: string[]; text: string }[] = [];
+const mailServer = createServer(async (request, response) => {
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) chunks.push(Buffer.from(chunk));
+  if (request.headers.authorization !== `Bearer ${testEnv.RESEND_API_KEY}`) {
+    response.writeHead(401).end();
+    return;
+  }
+  outbox.push(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+  response
+    .writeHead(200, { "content-type": "application/json" })
+    .end(JSON.stringify({ id: crypto.randomUUID() }));
+});
+await new Promise<void>((resolve) =>
+  mailServer.listen(0, "127.0.0.1", resolve),
+);
+mailServer.unref();
+testEnv.EMAIL_API_URL = `http://127.0.0.1:${(mailServer.address() as AddressInfo).port}/emails`;
+const mailToken = (email: string, path: string) => {
+  const message = outbox.findLast(
+    (m) => m.to.includes(email) && m.text.includes(`/${path}#`),
+  );
+  assert.ok(message, "expected synthetic account email");
+  const link = message.text.match(/https?:\/\/\S+/)![0];
+  return new URLSearchParams(new URL(link).hash.slice(1)).get("token")!;
+};
 const root = process.cwd(),
   directory = path.join(root, "work/cloudflare-smoke"),
   configPath = path.join(directory, "wrangler.json"),
@@ -31,6 +64,10 @@ Object.assign(config, {
   ],
   vars: { FLOORPLAN_STORAGE: "cloudflare", ...testEnv },
 });
+// The sole outbound request is to the loopback email stub; production keeps the strict-public flag.
+config.compatibility_flags = config.compatibility_flags.filter(
+  (flag: string) => flag !== "global_fetch_strictly_public",
+);
 config.d1_databases = [
   {
     binding: "DB",
@@ -172,7 +209,7 @@ try {
   assert.equal(generated.credential.issued, true);
   const personalToken =
     generated.mcpServers["floorplan-studio"].headers.Authorization.slice(7);
-  assert.match(personalToken, /^fp_[a-f0-9]{64}$/);
+  assert.match(personalToken, /^fp_[a-f0-9-]{36}_[a-f0-9]{64}$/);
   const reread = await (
     await fetch(`${origin}/api/setup`, { headers: { cookie } })
   ).json();
@@ -330,16 +367,174 @@ try {
     }),
   );
   assert.equal((await freshClient.listTools()).tools.length, 8);
+  const postAuth = async (action: string, body: unknown) =>
+    fetch(`${origin}/api/auth/${action}`, {
+      method: "POST",
+      headers: { origin, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  r = await postAuth("register", {
+    username: "bob",
+    email: "bob@example.com",
+    password: "bob-example-password",
+  });
+  assert.equal(r.status, 201);
+  r = await postAuth("login", {
+    username: "bob",
+    password: "bob-example-password",
+  });
+  assert.equal(r.status, 403);
+  const verification = mailToken("bob@example.com", "verify-email");
+  r = await postAuth("verify-email", { token: verification });
+  assert.equal(r.status, 200);
+  r = await postAuth("verify-email", { token: verification });
+  assert.equal(r.status, 400);
+  r = await postAuth("login", {
+    username: "bob@example.com",
+    password: "bob-example-password",
+  });
+  assert.equal(r.status, 200);
+  const bobCookie = r.headers.get("set-cookie")!.split(";")[0],
+    bobSession = await r.json(),
+    bobHeaders = {
+      origin,
+      cookie: bobCookie,
+      "x-floorplan-csrf": bobSession.csrf,
+    };
+  r = await fetch(`${origin}/api/projects`, { headers: { cookie: bobCookie } });
+  assert.deepEqual(await r.json(), []);
+  for (const suffix of ["", "/export", "/png", "/source"]) {
+    r = await fetch(
+      `${origin}/api/projects/${suffix === "/source" ? imageProject.id : project.id}${suffix}`,
+      { headers: { cookie: bobCookie, "if-none-match": '"revision:1"' } },
+    );
+    assert.equal(r.status, 404);
+  }
+  r = await fetch(`${origin}/api/projects/${project.id}/commands`, {
+    method: "POST",
+    headers: { ...bobHeaders, "content-type": "application/json" },
+    body: JSON.stringify({
+      expectedRevision: 1,
+      commands: [
+        {
+          type: "update_room",
+          roomId: project.plan.rooms[0].id,
+          name: "stolen",
+        },
+      ],
+    }),
+  });
+  assert.equal(r.status, 404);
+  r = await fetch(`${origin}/api/migrate`, {
+    method: "POST",
+    headers: { ...bobHeaders, "content-type": "application/json" },
+    body: JSON.stringify({ project: migrated }),
+  });
+  assert.equal(r.status, 409);
+  const bobForm = new FormData();
+  bobForm.set("name", "Bob only");
+  bobForm.set("demo", "true");
+  r = await fetch(`${origin}/api/projects`, {
+    method: "POST",
+    headers: bobHeaders,
+    body: bobForm,
+  });
+  assert.equal(r.status, 201);
+  const bobProject = await r.json();
+  r = await fetch(`${origin}/api/projects/${bobProject.id}`, {
+    headers: { cookie },
+  });
+  assert.equal(r.status, 404);
+  r = await fetch(`${origin}/api/setup`, {
+    method: "POST",
+    headers: { ...bobHeaders, "content-type": "application/json" },
+    body: JSON.stringify({ action: "create" }),
+  });
+  assert.equal(r.status, 200);
+  const bobConfig = await r.json(),
+    bobToken =
+      bobConfig.mcpServers["floorplan-studio"].headers.Authorization.slice(7);
+  const bobClient = new Client({ name: "bob-user-smoke", version: "1" });
+  clients.push(bobClient);
+  await bobClient.connect(
+    new StreamableHTTPClientTransport(new URL(`${origin}/api/mcp`), {
+      requestInit: { headers: { authorization: `Bearer ${bobToken}` } },
+    }),
+  );
+  const list = await bobClient.callTool({
+    name: "list_projects",
+    arguments: {},
+  });
+  assert.ok(!list.isError);
+  const listed = JSON.parse(
+    (list.content as { type: string; text: string }[]).find(
+      (c) => c.type === "text",
+    )!.text,
+  );
+  assert.deepEqual(
+    listed.map((p: { id: string }) => p.id),
+    [bobProject.id],
+  );
+  for (const id of [project.id, imageProject.id]) {
+    const denied = await bobClient.callTool({
+      name: "get_project",
+      arguments: { projectId: id },
+    });
+    assert.equal(denied.isError, true);
+  }
+  r = await fetch(`${origin}/api/agent/projects/${project.id}`, {
+    headers: { authorization: `Bearer ${bobToken}` },
+  });
+  assert.equal(r.status, 404);
+  const unknown = await postAuth("forgot-password", {
+    email: "unknown@example.com",
+  });
+  const unknownBody = await unknown.json();
+  r = await postAuth("forgot-password", { email: "bob@example.com" });
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), unknownBody);
+  const reset = mailToken("bob@example.com", "reset-password");
+  r = await postAuth("reset-password", {
+    token: reset,
+    password: "bob-new-example-password",
+  });
+  assert.equal(r.status, 200);
+  r = await postAuth("reset-password", {
+    token: reset,
+    password: "bob-alt-password",
+  });
+  assert.equal(r.status, 400);
+  r = await fetch(`${origin}/api/projects`, { headers: { cookie: bobCookie } });
+  assert.equal(r.status, 401);
+  r = await fetch(`${origin}/api/agent/projects`, {
+    headers: { authorization: `Bearer ${bobToken}` },
+  });
+  assert.equal(r.status, 401);
+  r = await postAuth("login", {
+    username: "bob",
+    password: "bob-example-password",
+  });
+  assert.equal(r.status, 401);
+  r = await postAuth("login", {
+    username: "bob",
+    password: "bob-new-example-password",
+  });
+  assert.equal(r.status, 200);
+  r = await fetch(`${origin}/api/agent/projects`, {
+    headers: { authorization: `Bearer ${rotatedToken}` },
+  });
+  assert.equal(r.status, 200);
   r = await fetch(`${origin}/api/auth/logout`, { method: "POST", headers });
   assert.equal(r.status, 200);
   assert.match(r.headers.get("set-cookie")!, /Max-Age=0/);
   console.log(
-    "Workers smoke passed: login, CSRF, per-user token issuance and revocation, private APIs, D1/R2, conditional polling, remote MCP, human-only review, revision conflicts, PNG, original image and JSON export.",
+    "Workers smoke passed: registration, email verification, password recovery, session/token revocation, two-user browser and MCP isolation, legacy owner, CSRF, D1/R2, image/PNG/JSON export and revision conflicts. Mail delivery was simulated locally.",
   );
 } catch (e) {
   console.error(logs);
   throw e;
 } finally {
+  await new Promise<void>((resolve) => mailServer.close(() => resolve()));
   for (const client of clients) await client.close().catch(() => {});
   if (server?.pid) {
     try {

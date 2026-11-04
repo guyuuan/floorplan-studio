@@ -203,9 +203,11 @@ async function jsonFetch(url: string, init?: RequestInit) {
 export default function Studio({
   storageMode = "local",
   loginEnabled = false,
+  currentUser = null,
 }: {
   storageMode?: "local" | "cloudflare";
   loginEnabled?: boolean;
+  currentUser?: { id: string; username: string } | null;
 }) {
   const [project, setProject] = useState<Project | null>(null),
     [projects, setProjects] = useState<Summary[]>([]),
@@ -278,7 +280,12 @@ export default function Studio({
       try {
         const p = await jsonFetch(`/api/projects/${id}`);
         setProject(p);
-        localStorage.setItem("floorplan-project", p.id);
+        localStorage.setItem(
+          currentUser
+            ? `floorplan-project:${currentUser.id}`
+            : "floorplan-project",
+          p.id,
+        );
         setSelection(null);
         setProjectMenu(false);
         setZoom(1);
@@ -300,7 +307,11 @@ export default function Studio({
         await jsonFetch("/api/status");
         if (cancelled) return;
         setOnline(true);
-        const last = localStorage.getItem("floorplan-project");
+        const last = localStorage.getItem(
+          currentUser
+            ? `floorplan-project:${currentUser.id}`
+            : "floorplan-project",
+        );
         if (last && list.some((p) => p.id === last)) await openProject(last);
       } catch (e) {
         if (!cancelled) notify(String(e instanceof Error ? e.message : e));
@@ -392,7 +403,12 @@ export default function Studio({
         body: form,
       });
       setProject(p);
-      localStorage.setItem("floorplan-project", p.id);
+      localStorage.setItem(
+        currentUser
+          ? `floorplan-project:${currentUser.id}`
+          : "floorplan-project",
+        p.id,
+      );
       setModal(null);
       setFile(null);
       setSelection(null);
@@ -711,7 +727,12 @@ export default function Studio({
         body: await f.text(),
       });
       setProject(p);
-      localStorage.setItem("floorplan-project", p.id);
+      localStorage.setItem(
+        currentUser
+          ? `floorplan-project:${currentUser.id}`
+          : "floorplan-project",
+        p.id,
+      );
       setSelection(null);
       setMode("2d");
       setZoom(1);
@@ -854,6 +875,11 @@ export default function Studio({
           )}
         </span>
         <div className="top-actions">
+          {currentUser && (
+            <a className="text-button" href="/account">
+              {currentUser.username}
+            </a>
+          )}
           {loginEnabled && (
             <button
               className="text-button"

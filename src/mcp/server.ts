@@ -20,8 +20,8 @@ const base = (process.env.FLOORPLAN_API_URL ?? "http://127.0.0.1:3000").replace(
 );
 const api = async (path: string, body?: unknown) => {
   const credential =
-    process.env.MCP_TOKEN ??
     process.env.FLOORPLAN_MCP_TOKEN ??
+    process.env.MCP_TOKEN ??
     (await localToken());
   const response = await fetch(`${base}/api/agent/${path}`, {
     method: body ? "POST" : "GET",

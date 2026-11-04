@@ -11,6 +11,7 @@ export async function GET(request: Request) {
         authenticated: true,
         authEnabled: authEnabled(runtime),
         username: session?.username ?? null,
+        userId: session?.userId ?? null,
         csrf: session?.csrf ?? null,
         mode: runtime.mode,
       },

@@ -58,7 +58,9 @@ export async function GET(request: Request) {
     const credential = session
       ? {
           username: session.username,
-          ...(await (await userMcpTokens(runtime)).status(session.username)),
+          ...(await (
+            await userMcpTokens(runtime, session.version)
+          ).status(session.userId)),
           issued: false,
         }
       : null;
@@ -84,8 +86,8 @@ export async function POST(request: Request) {
       .object({ action: z.enum(["create", "rotate"]) })
       .parse(await limitedJson(request, 1024));
     const { token, ...status } = await (
-      await userMcpTokens(runtime)
-    ).issue(session.username, action === "rotate");
+      await userMcpTokens(runtime, session.version)
+    ).issue(session.userId, action === "rotate");
     return Response.json(
       {
         ...(await configuration(runtime, request, token)),

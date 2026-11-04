@@ -8,9 +8,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   try {
-    await requireMcp(request);
+    const identity = await requireMcp(request);
     const body = await limitedJson(request);
-    const server = createMcpServer(createAgentApi(await getProjectService()));
+    const server = createMcpServer(
+      createAgentApi(await getProjectService(identity?.userId)),
+    );
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
@@ -31,7 +33,7 @@ export async function POST(request: Request) {
 }
 export async function GET(request: Request) {
   try {
-    await requireMcp(request);
+    const identity = await requireMcp(request);
     return new Response(null, {
       status: 405,
       headers: { Allow: "POST", "Cache-Control": "no-store" },

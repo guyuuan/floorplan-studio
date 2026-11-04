@@ -6,10 +6,10 @@ export const dynamic = "force-dynamic";
 type Context = { params: Promise<{ path: string[] }> };
 export async function GET(request: Request, { params }: Context) {
   try {
-    await requireAgent(request);
+    const identity = await requireAgent(request);
     const path = (await params).path.map(encodeURIComponent).join("/");
     return Response.json(
-      await createAgentApi(await getProjectService())(path),
+      await createAgentApi(await getProjectService(identity?.userId))(path),
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (e) {
@@ -18,12 +18,11 @@ export async function GET(request: Request, { params }: Context) {
 }
 export async function POST(request: Request, { params }: Context) {
   try {
-    await requireAgent(request);
+    const identity = await requireAgent(request);
     const path = (await params).path.map(encodeURIComponent).join("/");
-    const data = await createAgentApi(await getProjectService())(
-      path,
-      await limitedJson(request),
-    );
+    const data = await createAgentApi(
+      await getProjectService(identity?.userId),
+    )(path, await limitedJson(request));
     return Response.json(data, {
       status: path === "projects" ? 201 : 200,
       headers: { "Cache-Control": "no-store" },
