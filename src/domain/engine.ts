@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+  wallFaceAttachments,
+  wallFaceAttachmentFits,
+  followWallFace,
+  sameWallEndpoint,
+} from "./wall-joints";
 import polygonClipping from "polygon-clipping";
 import {
   commandSchema,
@@ -271,6 +277,13 @@ export function applyCommands(
       case "update_wall": {
         const w = wallById(p, c.wallId);
         editable(w, p);
+        const originalWalls = structuredClone(p.plan.walls),
+          previous = structuredClone(w);
+        const thicknessChanged =
+          c.thickness !== undefined && c.thickness !== previous.thickness;
+        const attachments = thicknessChanged
+          ? wallFaceAttachments(previous, originalWalls)
+          : [];
         for (const k of ["a", "b", "thickness", "height"] as const)
           if (c[k] !== undefined) Object.assign(w, { [k]: c[k] });
         const requestedStart = [...w.a] as [number, number],
@@ -284,18 +297,96 @@ export function applyCommands(
         if (requestedLength < 100)
           fail("WALL_TOO_SHORT", "墙体长度不能小于 100 mm。");
         const connected = connectWallEndpoints(w, p.plan.walls);
-        const conflict = overlappingWall(connected, p.plan.walls);
-        if (conflict)
-          fail(
-            "WALL_INTERSECTION",
-            `调整后与墙体 ${conflict.id} 相交或重叠，请调整端点或厚度。`,
-          );
+        if (
+          thicknessChanged &&
+          sameWallEndpoint(w.a, previous.a) &&
+          sameWallEndpoint(w.b, previous.b)
+        ) {
+          const lateralShift =
+            (connected.a[0] - w.a[0]) * -direction[1] +
+            (connected.a[1] - w.a[1]) * direction[0];
+          if (Math.abs(lateralShift) > 0.05)
+            fail(
+              "WALL_JOIN_CONFLICT",
+              "此转角无法在保持墙体中心线位置的同时改变厚度，请先调整转角连接。",
+            );
+        }
         const shift =
           (connected.a[0] - requestedStart[0]) * direction[0] +
           (connected.a[1] - requestedStart[1]) * direction[1];
         Object.assign(w, connected);
         for (const opening of p.plan.openings)
           if (opening.wallId === w.id) opening.offset -= shift;
+        const affected = new Set([w.id]);
+        for (const attachment of attachments) {
+          const branch = wallById(p, attachment.wallId);
+          const moved =
+            followWallFace(w, branch, attachment) ??
+            fail(
+              "WALL_JOIN_CONFLICT",
+              `墙厚联动后，墙体 ${branch.id} 无法保持有效长度或完整贴合，请调整连接。`,
+            );
+          if (
+            sameWallEndpoint(branch.a, moved.a) &&
+            sameWallEndpoint(branch.b, moved.b)
+          )
+            continue;
+          if (branch.kind !== "partition" || !branch.reviewed)
+            fail(
+              "CONNECTED_WALL_LOCKED",
+              `墙厚变化需要移动相连墙体 ${branch.id} 的端点，但该墙体受保护或尚未确认，操作未保存。`,
+            );
+          const size = wallLength(branch),
+            startShift =
+              ((moved.a[0] - branch.a[0]) * (branch.b[0] - branch.a[0]) +
+                (moved.a[1] - branch.a[1]) * (branch.b[1] - branch.a[1])) /
+              size;
+          Object.assign(branch, moved);
+          for (const opening of p.plan.openings) {
+            if (opening.wallId !== branch.id) continue;
+            const offset = opening.offset - startShift;
+            if (
+              offset < -0.01 ||
+              offset + opening.width > wallLength(branch) + 0.01
+            )
+              fail(
+                "WALL_JOIN_OPENING_CONFLICT",
+                `墙厚联动会挤占墙体 ${branch.id} 上的门窗 ${opening.id}，请先调整门窗，操作未保存。`,
+              );
+            opening.offset = Math.abs(offset) < 0.01 ? 0 : offset;
+          }
+          affected.add(branch.id);
+        }
+        // Endpoint shifts must not detach a wall from another face or invalidate an existing branch junction.
+        if (thicknessChanged)
+          for (const oldHost of originalWalls) {
+            for (const attachment of wallFaceAttachments(
+              oldHost,
+              originalWalls,
+            )) {
+              if (!affected.has(oldHost.id) && !affected.has(attachment.wallId))
+                continue;
+              if (
+                !wallFaceAttachmentFits(
+                  wallById(p, oldHost.id),
+                  wallById(p, attachment.wallId),
+                  attachment,
+                )
+              )
+                fail(
+                  "WALL_JOIN_CONFLICT",
+                  `墙厚联动会破坏墙体 ${oldHost.id} 与 ${attachment.wallId} 的既有接缝，操作未保存。`,
+                );
+            }
+          }
+        for (const id of affected) {
+          const conflict = overlappingWall(wallById(p, id), p.plan.walls);
+          if (conflict)
+            fail(
+              "WALL_INTERSECTION",
+              `调整后与墙体 ${conflict.id} 相交或重叠，请调整端点或厚度。`,
+            );
+        }
         geometryChanged = true;
         break;
       }
