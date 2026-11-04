@@ -1,5 +1,12 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  doorStyleNames,
+  fitOpening,
+  getOpeningType,
+  withOpeningType,
+  type OpeningType,
+} from "@/domain/openings";
 import dynamic from "next/dynamic";
 import {
   ArrowDownToLine,
@@ -447,12 +454,17 @@ export default function Studio() {
   );
   const addOpening = useCallback(
     (wall: Wall, offset: number, kind: "door" | "window") => {
-      const width = kind === "door" ? 900 : 1200,
-        id = uid(kind),
-        start = Math.max(
-          0,
-          Math.min(offset - width / 2, wallLength(wall) - width),
-        );
+      const placement = fitOpening(
+        wall,
+        current.current?.plan.openings ?? [],
+        offset,
+        kind,
+      );
+      if (!placement) {
+        notify("此处没有足够的空白墙段，请调整位置或先编辑现有门窗。");
+        return;
+      }
+      const id = uid(kind);
       void run([
         {
           type: "upsert_opening",
@@ -460,11 +472,7 @@ export default function Studio() {
             id,
             wallId: wall.id,
             kind,
-            offset: start,
-            width,
-            height: kind === "door" ? 2100 : 1400,
-            sill: kind === "door" ? 0 : 900,
-            swing: "left",
+            ...placement,
           },
         },
       ]).then((ok) => {
@@ -1548,7 +1556,7 @@ export default function Studio() {
                         <LockKeyhole size={15} />
                         {selectedWall.kind === "unknown"
                           ? "确认性质前禁止拆改"
-                          : "此墙体及其门窗受保护"}
+                          : "此墙体受保护，门窗可单独编辑"}
                       </div>
                     )}
                     <form
@@ -1789,6 +1797,7 @@ export default function Studio() {
                   <OpeningInspector
                     key={`${selectedOpening.id}-${project.revision}`}
                     opening={selectedOpening}
+                    walls={project.plan.walls}
                     wall={project.plan.walls.find(
                       (w) => w.id === selectedOpening.wallId,
                     )!}
@@ -1922,7 +1931,7 @@ export default function Studio() {
                         <div>
                           <strong>结构保护已启用</strong>
                           <p>
-                            外墙与外墙门窗固定
+                            外墙固定 · 门窗可手动调整
                             <br />
                             承重墙禁止拆改
                           </p>
@@ -2160,7 +2169,7 @@ export default function Studio() {
                   <span>删除 / 适应画布</span>
                 </div>
                 <p className="quiet-note">
-                  外墙及其门窗、承重墙始终受保护。只有用户可以纠正墙体类型；Agent
+                  外墙和承重墙的墙体受保护；用户可调整或删除所有门窗。只有用户可以纠正墙体类型；Agent
                   无权解除保护。方案导入会建立新项目，并要求重新核对墙体。
                 </p>
               </>
@@ -2174,34 +2183,55 @@ export default function Studio() {
 function OpeningInspector({
   opening: o,
   wall,
+  walls,
   busy,
   run,
   onDelete,
 }: {
   opening: Opening;
   wall: Wall;
+  walls: Wall[];
   busy: boolean;
   run: (c: Command[]) => Promise<boolean>;
   onDelete: () => void;
 }) {
-  const locked = wall.kind !== "partition" || !wall.reviewed;
+  const savedType = getOpeningType(o);
+  const [type, setType] = useState<OpeningType>(savedType);
   return (
     <div>
       <div className="object-title">
         <span>
           <DoorOpen size={18} />
-          {o.kind === "door" ? "门洞" : "窗洞"}
+          {savedType === "passage"
+            ? "过道"
+            : o.kind === "door"
+              ? "门洞"
+              : "窗洞"}
         </span>
-        {locked && <LockKeyhole size={15} />}
       </div>
       <p className="object-id">
         {o.id} · {wallKinds[wall.kind]}
       </p>
-      {locked && (
-        <div className="protected-note">
-          <LockKeyhole size={14} />
-          外墙或承重墙上的门窗固定
-        </div>
+      <p className="quiet-note">
+        可手动调整或删除此门窗，墙体本身的保护规则保持有效。
+      </p>
+      {savedType === "door" && (
+        <button
+          type="button"
+          className="button light full"
+          disabled={busy}
+          onClick={() =>
+            void run([
+              {
+                type: "upsert_opening",
+                opening: withOpeningType(o, "passage"),
+              },
+            ])
+          }
+        >
+          <DoorOpen size={15} />
+          移除门扇，改为过道
+        </button>
       )}
       <form
         onSubmit={(e) => {
@@ -2210,66 +2240,99 @@ function OpeningInspector({
           void run([
             {
               type: "upsert_opening",
-              opening: {
-                ...o,
-                offset: Number(d.get("offset")),
-                width: Number(d.get("width")),
-                height: Number(d.get("height")),
-                sill: Number(d.get("sill")),
-                swing: d.get("swing") as Opening["swing"],
-              },
+              opening: withOpeningType(
+                {
+                  ...o,
+                  wallId: String(d.get("wallId")),
+                  offset: Number(d.get("offset")),
+                  width: Number(d.get("width")),
+                  height: Number(d.get("height")),
+                  sill: Number(d.get("sill")),
+                  swing: (d.get("swing") ?? o.swing) as Opening["swing"],
+                  doorStyle: (d.get("doorStyle") ||
+                    undefined) as Opening["doorStyle"],
+                },
+                type,
+              ),
             },
           ]);
         }}
       >
+        <label className="field">
+          <span>所在墙体</span>
+          <select name="wallId" defaultValue={o.wallId}>
+            {walls.map((w) => (
+              <option key={w.id} value={w.id}>
+                {wallKinds[w.kind]} · {w.id} · {Math.round(wallLength(w))} mm
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>洞口类型</span>
+          <select
+            name="kind"
+            value={type}
+            onChange={(e) => setType(e.target.value as OpeningType)}
+          >
+            <option value="door">门洞</option>
+            <option value="window">窗洞</option>
+            <option value="passage">过道（无门扇）</option>
+          </select>
+        </label>
         <div className="field-grid">
           <Field
             name="offset"
             label="距墙起点 mm"
             value={Math.round(o.offset)}
             min={0}
-            disabled={locked}
           />
-          <Field
-            name="width"
-            label="洞口宽度 mm"
-            value={o.width}
-            min={200}
-            disabled={locked}
-          />
-          <Field
-            name="height"
-            label="洞口高度 mm"
-            value={o.height}
-            min={200}
-            disabled={locked}
-          />
-          <Field
-            name="sill"
-            label="底部标高 mm"
-            value={o.sill}
-            min={0}
-            disabled={locked}
-          />
+          <Field name="width" label="洞口宽度 mm" value={o.width} min={200} />
+          <Field name="height" label="洞口高度 mm" value={o.height} min={200} />
+          {type !== "passage" && (
+            <Field name="sill" label="底部标高 mm" value={o.sill} min={0} />
+          )}
         </div>
-        <label className="field">
-          <span>开启方向</span>
-          <select name="swing" defaultValue={o.swing} disabled={locked}>
-            <option value="left">左侧铰链</option>
-            <option value="right">右侧铰链</option>
-          </select>
-        </label>
-        <button className="button light full" disabled={locked || busy}>
+        {type === "door" ? (
+          <>
+            <label className="field">
+              <span>门型</span>
+              <select
+                name="doorStyle"
+                defaultValue={
+                  o.doorStyle === "opening" ? "" : (o.doorStyle ?? "")
+                }
+              >
+                <option value="">按宽度显示：≤1200 mm 单扇，宽洞口推拉</option>
+                {Object.entries(doorStyleNames)
+                  .filter(([value]) => value !== "opening")
+                  .map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>平开门铰链方向</span>
+              <select name="swing" defaultValue={o.swing}>
+                <option value="left">左侧铰链</option>
+                <option value="right">右侧铰链</option>
+              </select>
+            </label>
+          </>
+        ) : type === "passage" ? (
+          <p className="quiet-note">
+            过道保留洞口尺寸与位置，移除门扇，底部与地面齐平，可直接通行。
+          </p>
+        ) : null}
+        <button className="button light full" disabled={busy}>
           应用洞口设置
         </button>
       </form>
-      <button
-        className="button danger full"
-        disabled={locked || busy}
-        onClick={onDelete}
-      >
+      <button className="button danger full" disabled={busy} onClick={onDelete}>
         <Trash2 size={14} />
-        删除洞口
+        删除洞口并补回墙体
       </button>
     </div>
   );

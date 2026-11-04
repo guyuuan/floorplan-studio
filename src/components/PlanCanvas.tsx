@@ -16,6 +16,7 @@ import {
 } from "@/domain/geometry";
 import { materials } from "@/domain/schema";
 import { FurnitureShape } from "./FurnitureShape";
+import { doorStyle, doorLeafCount, getOpeningType } from "@/domain/openings";
 
 export type Selection = {
   kind: "wall" | "opening" | "furniture" | "room";
@@ -454,7 +455,9 @@ export function PlanCanvas({
           angle =
             (Math.atan2(w.b[1] - w.a[1], w.b[0] - w.a[0]) * 180) / Math.PI,
           selected = selection?.kind === "opening" && selection.id === o.id,
-          t = w.thickness;
+          t = w.thickness,
+          style = doorStyle(o),
+          count = doorLeafCount(o);
         return (
           <g
             key={o.id}
@@ -466,6 +469,15 @@ export function PlanCanvas({
               }
             }}
             className="opening-object"
+            role="button"
+            tabIndex={0}
+            aria-label={`${getOpeningType(o) === "passage" ? "过道" : o.kind === "door" ? "门洞" : "窗洞"} ${o.id}`}
+            onKeyDown={(e) => {
+              if (tool === "select" && ["Enter", " "].includes(e.key)) {
+                e.preventDefault();
+                onSelect({ kind: "opening", id: o.id });
+              }
+            }}
           >
             <rect
               y={-t / 2 - 4}
@@ -481,22 +493,43 @@ export function PlanCanvas({
                 stroke="#7e9f95"
                 strokeWidth={12}
               />
-            ) : (
+            ) : style === "sliding" ? (
               <g
-                transform={
-                  o.swing === "right"
-                    ? `translate(${o.width},0) scale(-1,1)`
-                    : undefined
-                }
+                stroke={selected ? "#47785d" : "#829081"}
+                strokeWidth={18}
+                fill="none"
               >
-                <path
-                  d={`M0,0V${o.width} A${o.width},${o.width} 0 0 0 ${o.width},0`}
-                  fill="none"
-                  stroke={selected ? "#47785d" : "#829081"}
-                  strokeWidth={18}
-                />
+                {Array.from({ length: count }, (_, i) => (
+                  <rect
+                    key={i}
+                    x={(i * o.width) / count}
+                    y={i % 2 ? -t * 0.15 : t * 0.05}
+                    width={o.width / count}
+                    height={t * 0.2}
+                  />
+                ))}
               </g>
-            )}
+            ) : style !== "opening" ? (
+              Array.from({ length: count }, (_, i) => {
+                const width = o.width / count,
+                  right = count === 2 ? i === 1 : o.swing === "right";
+                return (
+                  <g
+                    key={i}
+                    transform={
+                      right ? `translate(${o.width},0) scale(-1,1)` : undefined
+                    }
+                  >
+                    <path
+                      d={`M0,0V${width} A${width},${width} 0 0 0 ${width},0`}
+                      fill="none"
+                      stroke={selected ? "#47785d" : "#829081"}
+                      strokeWidth={18}
+                    />
+                  </g>
+                );
+              })
+            ) : null}
           </g>
         );
       })}

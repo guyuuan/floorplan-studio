@@ -16,6 +16,7 @@ import {
 } from "@/domain/geometry";
 import { materials, type Furniture, type Plan } from "@/domain/schema";
 import type { Selection } from "./PlanCanvas";
+import { doorStyle, doorLeafCount } from "@/domain/openings";
 
 function furnitureModel(f: Furniture) {
   const g = new THREE.Group(),
@@ -551,8 +552,7 @@ export function SceneCanvas({
       id: string;
       group: THREE.Group;
       open: boolean;
-      angle: number;
-      center: THREE.Vector3;
+      setOpen: (open: boolean) => void;
     }[] = [];
     const footprints = wallFootprints(plan.walls);
     for (const w of plan.walls) {
@@ -653,36 +653,65 @@ export function SceneCanvas({
             bar.position.set(x, o.sill / 1000 + oh / 2, 0);
             group.add(bar);
           }
-        } else if (o.kind === "door" && oh > 0) {
-          const hinge = new THREE.Group();
-          hinge.position.x = o.swing === "left" ? a : z;
-          const panel = new THREE.Mesh(
-            new THREE.BoxGeometry(z - a, oh, 0.045),
-            doorMat,
-          );
-          panel.position.set(
-            o.swing === "left" ? (z - a) / 2 : -(z - a) / 2,
-            oh / 2,
-            0,
-          );
-          panel.castShadow = true;
-          panel.userData.doorId = o.id;
-          hinge.add(panel);
-          hinge.rotation.y =
-            o.swing === "left" ? -Math.PI * 0.35 : Math.PI * 0.35;
-          group.add(hinge);
-          group.updateMatrixWorld(true);
-          doorGroups.push({
-            id: o.id,
-            group: hinge,
-            open: true,
-            angle: hinge.rotation.y,
-            center: new THREE.Vector3(
-              (w.a[0] + w.b[0]) / 2000,
+        } else if (o.kind === "door" && oh > 0 && doorStyle(o) !== "opening") {
+          const door = new THREE.Group(),
+            style = doorStyle(o),
+            count = doorLeafCount(o),
+            width = (z - a) / count,
+            leaves: {
+              group: THREE.Group;
+              closedX: number;
+              openX: number;
+              angle: number;
+            }[] = [];
+          door.position.set(a, o.sill / 1000, 0);
+          for (let i = 0; i < count; i++) {
+            const leaf = new THREE.Group(),
+              right = count === 2 ? i === 1 : o.swing === "right",
+              sliding = style === "sliding",
+              closedX = sliding ? (i + 0.5) * width : right ? z - a : 0,
+              openX = sliding
+                ? i < count / 2
+                  ? width * 0.15
+                  : z - a - width * 0.15
+                : closedX,
+              angle = sliding ? 0 : right ? Math.PI * 0.35 : -Math.PI * 0.35;
+            leaf.position.set(closedX, 0, sliding ? (i % 2) * 0.055 : 0);
+            const panel = new THREE.Mesh(
+              new THREE.BoxGeometry(width, oh, 0.045),
+              sliding ? glass : doorMat,
+            );
+            panel.position.set(
+              sliding ? 0 : right ? -width / 2 : width / 2,
+              oh / 2,
               0,
-              (w.a[1] + w.b[1]) / 2000,
-            ),
-          });
+            );
+            panel.castShadow = true;
+            panel.userData.doorId = o.id;
+            leaf.add(panel);
+            // Make sliding glass panels visible in section views as individual leaves.
+            if (sliding) {
+              for (const x of [-width / 2, width / 2]) {
+                const frame = new THREE.Mesh(
+                  new THREE.BoxGeometry(0.035, oh, 0.06),
+                  frameMat,
+                );
+                frame.position.set(x, oh / 2, 0);
+                frame.userData.doorId = o.id;
+                leaf.add(frame);
+              }
+            }
+            door.add(leaf);
+            leaves.push({ group: leaf, closedX, openX, angle });
+          }
+          const setOpen = (open: boolean) =>
+            leaves.forEach((leaf) => {
+              leaf.group.position.x = open ? leaf.openX : leaf.closedX;
+              leaf.group.rotation.y = open ? leaf.angle : 0;
+            });
+          setOpen(true);
+          group.add(door);
+          doorGroups.push({ id: o.id, group: door, open: true, setOpen });
         }
         cursor = z;
       }
@@ -739,7 +768,7 @@ export function SceneCanvas({
         );
         if (d) {
           d.open = !d.open;
-          d.group.rotation.y = d.open ? d.angle : 0;
+          d.setOpen(d.open);
         }
         return;
       }
@@ -806,7 +835,7 @@ export function SceneCanvas({
         });
         if (target && nearest < 3) {
           target.open = !target.open;
-          target.group.rotation.y = target.open ? target.angle : 0;
+          target.setOpen(target.open);
         }
       }
     };
@@ -888,7 +917,8 @@ export function SceneCanvas({
                 hit.offset < o.offset + o.width - 130,
             );
             const door = opening && doorGroups.find((d) => d.id === opening.id);
-            if (!opening || !door?.open) blocked = true;
+            if (!opening || (doorStyle(opening) !== "opening" && !door?.open))
+              blocked = true;
           }
         }
         if (blocked) camera.position.copy(before);

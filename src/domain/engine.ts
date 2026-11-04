@@ -13,7 +13,9 @@ import {
   type Project,
   type Snapshot,
   type Wall,
+  type Opening,
 } from "./schema";
+import { SINGLE_DOOR_WIDTH } from "./openings";
 import {
   along,
   area,
@@ -52,13 +54,33 @@ const wallById = (p: Project, id: string) =>
   fail("NOT_FOUND", "找不到指定墙体。");
 function editable(w: Wall, p: Project) {
   if (w.kind === "exterior")
-    fail("EXTERIOR_LOCKED", "外墙及其门窗固定，不能拆改。");
+    fail("EXTERIOR_LOCKED", "外墙墙体固定，不能拆改；用户可单独纠正门窗。");
   if (w.kind === "bearing")
     fail("BEARING_LOCKED", "承重墙禁止拆除、移动、修改厚度或开洞。");
   if (w.kind === "unknown" || !w.reviewed)
     fail("UNREVIEWED_WALL", "请先由用户确认该墙为非承重墙。");
   if (p.stage !== "design")
     fail("NOT_IN_DESIGN", "请先完成户型还原和结构核对，再进入设计阶段。");
+}
+function editableOpening(w: Wall, p: Project, actor: "user" | "agent") {
+  // Human corrections include existing exterior/bearing/unknown-wall openings in both stages.
+  if (actor === "agent") editable(w, p);
+}
+function checkGeneratedDoor(o: Opening) {
+  if (o.kind !== "door") return;
+  if (o.width > SINGLE_DOOR_WIDTH && !o.doorStyle)
+    fail(
+      "DOOR_WIDTH_REVIEW_REQUIRED",
+      `门洞 ${o.id} 宽度为 ${o.width} mm。请核对原图标注、比例及洞口端点，明确 double、sliding 或 opening；不能将整段阳台开口当作单扇门，无法确认时先询问用户。`,
+    );
+  if (
+    (o.doorStyle === "single" && o.width > SINGLE_DOOR_WIDTH) ||
+    (o.doorStyle === "double" && o.width > SINGLE_DOOR_WIDTH * 2)
+  )
+    fail(
+      "DOOR_LEAF_TOO_WIDE",
+      "生成的平开门单扇宽度超过 1200 mm，请核对宽度及门型；阳台宽开口应按原图选择推拉门或开放洞口。此阈值为生成策略，不代表建筑规范。",
+    );
 }
 export function validatePlan(plan: unknown) {
   const p = planSchema.parse(plan);
@@ -190,6 +212,7 @@ export function applyCommands(
             "STRUCTURE_CONFIRMED",
             "设计阶段不能覆盖原始户型，请通过单项编辑操作调整。",
           );
+        if (actor === "agent") c.plan.openings.forEach(checkGeneratedDoor);
         p.plan = validatePlan(c.plan);
         p.plan.walls.forEach((w) => (w.reviewed = false));
         p.calibrated = false;
@@ -427,8 +450,9 @@ export function applyCommands(
       }
       case "upsert_opening": {
         const old = p.plan.openings.find((o) => o.id === c.opening.id);
-        if (old) editable(wallById(p, old.wallId), p);
-        editable(wallById(p, c.opening.wallId), p);
+        if (old) editableOpening(wallById(p, old.wallId), p, actor);
+        editableOpening(wallById(p, c.opening.wallId), p, actor);
+        if (actor === "agent") checkGeneratedDoor(c.opening);
         p.plan.openings = p.plan.openings
           .filter((o) => o.id !== c.opening.id)
           .concat(c.opening);
@@ -438,7 +462,7 @@ export function applyCommands(
         const o =
           p.plan.openings.find((o) => o.id === c.openingId) ??
           fail("NOT_FOUND", "找不到门窗。");
-        editable(wallById(p, o.wallId), p);
+        editableOpening(wallById(p, o.wallId), p, actor);
         p.plan.openings = p.plan.openings.filter((x) => x.id !== o.id);
         break;
       }

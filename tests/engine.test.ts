@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { applyCommands, RuleError, validatePlan } from "../src/domain/engine";
 import { demoPlan } from "../src/domain/demo";
 import { roomArea, wallLength } from "../src/domain/geometry";
+import { doorStyle, doorLeafCount, fitOpening } from "../src/domain/openings";
 import type { Project, Command } from "../src/domain/schema";
 
 function fixture(): Project {
@@ -41,7 +42,7 @@ test("example plan is valid and has five enclosed spaces", () => {
   assert.equal(p.plan.rooms.length, 5);
   assert.ok(p.plan.rooms.reduce((s, r) => s + roomArea(r), 0) > 90);
 });
-test("exterior walls cannot be moved, resized, removed, or pierced", () => {
+test("agent cannot move, resize, remove, or pierce exterior walls", () => {
   for (const c of [
     { type: "update_wall", wallId: "ext_n", thickness: 120 },
     { type: "update_wall", wallId: "ext_n", a: [100, 100] },
@@ -62,7 +63,7 @@ test("exterior walls cannot be moved, resized, removed, or pierced", () => {
   ] as Command[])
     denied(c, "EXTERIOR_LOCKED");
 });
-test("existing exterior windows and doors cannot be moved, deleted, or reparented", () => {
+test("agent cannot move, delete, or reparent existing exterior windows and doors", () => {
   const p = fixture();
   for (const o of p.plan.openings.filter((o) => o.wallId.startsWith("ext_"))) {
     denied({ type: "delete_opening", openingId: o.id }, "EXTERIOR_LOCKED");
@@ -78,6 +79,195 @@ test("existing exterior windows and doors cannot be moved, deleted, or reparente
       "EXTERIOR_LOCKED",
     );
   }
+});
+test("user can edit, delete and recreate openings on every wall type in either stage", () => {
+  for (const kind of ["exterior", "bearing", "partition", "unknown"] as const) {
+    for (const stage of ["reconstruction", "design"] as const) {
+      let p = fixture();
+      p.stage = stage;
+      const entry = p.plan.openings.find((o) => o.id === "entry")!;
+      const wall = p.plan.walls.find((w) => w.id === entry.wallId)!;
+      wall.kind = kind;
+      wall.reviewed = false;
+      const walls = structuredClone(p.plan.walls);
+      p = applyCommands(
+        p,
+        [
+          {
+            type: "upsert_opening",
+            opening: {
+              ...entry,
+              offset: 900,
+              width: 2200,
+              doorStyle: "sliding",
+            },
+          },
+        ],
+        "user",
+      );
+      assert.equal(p.plan.openings.find((o) => o.id === entry.id)!.width, 2200);
+      p = applyCommands(
+        p,
+        [{ type: "delete_opening", openingId: entry.id }],
+        "user",
+      );
+      assert.ok(!p.plan.openings.some((o) => o.id === entry.id));
+      p = applyCommands(
+        p,
+        [
+          {
+            type: "upsert_opening",
+            opening: { ...entry, kind: "window", height: 1300, sill: 800 },
+          },
+        ],
+        "user",
+      );
+      assert.equal(
+        p.plan.openings.find((o) => o.id === entry.id)!.kind,
+        "window",
+      );
+      assert.deepEqual(p.plan.walls, walls);
+      assert.equal(p.stage, stage);
+    }
+  }
+});
+test("user can move an exterior opening to a bearing wall without changing either wall", () => {
+  const p = fixture(),
+    o = p.plan.openings.find((o) => o.id === "entry")!;
+  const changed = applyCommands(
+    p,
+    [
+      {
+        type: "upsert_opening",
+        opening: { ...o, wallId: "bedroom_wall", offset: 500 },
+      },
+    ],
+    "user",
+  );
+  assert.equal(
+    changed.plan.openings.find((o) => o.id === "entry")!.wallId,
+    "bedroom_wall",
+  );
+  assert.deepEqual(changed.plan.walls, p.plan.walls);
+});
+test("user opening corrections retain bounds, overlap and height validation and can be undone", () => {
+  const p = fixture(),
+    o = p.plan.openings.find((o) => o.id === "entry")!;
+  denied(
+    { type: "upsert_opening", opening: { ...o, offset: 12000 } },
+    "OPENING_OUT_OF_WALL",
+    p,
+    "user",
+  );
+  denied(
+    { type: "upsert_opening", opening: { ...o, height: 3000 } },
+    "OPENING_TOO_HIGH",
+    p,
+    "user",
+  );
+  denied(
+    { type: "upsert_opening", opening: { ...o, id: "duplicate_entry" } },
+    "OVERLAPPING_OPENINGS",
+    p,
+    "user",
+  );
+  const deleted = applyCommands(
+    p,
+    [{ type: "delete_opening", openingId: o.id }],
+    "user",
+  );
+  const restored = applyCommands(deleted, [{ type: "undo" }], "user");
+  assert.deepEqual(restored.plan, validatePlan(p.plan));
+  denied(
+    { type: "remove_wall", wallId: o.wallId },
+    "EXTERIOR_LOCKED",
+    deleted,
+    "user",
+  );
+});
+test("agent restoration requires an explicit, plausible style for wide doors but accepts broad windows", () => {
+  const p = fixture();
+  p.stage = "reconstruction";
+  const o = p.plan.openings.find((o) => o.id === "entry")!;
+  o.width = 2200;
+  denied(
+    { type: "restore_plan", plan: p.plan },
+    "DOOR_WIDTH_REVIEW_REQUIRED",
+    p,
+  );
+  o.doorStyle = "single";
+  denied({ type: "restore_plan", plan: p.plan }, "DOOR_LEAF_TOO_WIDE", p);
+  for (const style of ["double", "sliding", "opening"] as const) {
+    o.doorStyle = style;
+    const restored = applyCommands(
+      p,
+      [{ type: "restore_plan", plan: p.plan }],
+      "agent",
+    );
+    assert.equal(
+      restored.plan.openings.find((x) => x.id === o.id)!.doorStyle,
+      style,
+    );
+    assert.equal(
+      restored.plan.openings.find((x) => x.id === o.id)!.width,
+      2200,
+    );
+  }
+  o.doorStyle = "double";
+  o.width = 2600;
+  denied({ type: "restore_plan", plan: p.plan }, "DOOR_LEAF_TOO_WIDE", p);
+});
+test("agent design commands also validate wide doors and preserve an atomic batch on failure", () => {
+  const p = fixture(),
+    o = p.plan.openings.find((o) => o.id === "study_door")!;
+  const before = structuredClone(p);
+  denied(
+    { type: "upsert_opening", opening: { ...o, width: 1600 } },
+    "DOOR_WIDTH_REVIEW_REQUIRED",
+    p,
+  );
+  assert.throws(() =>
+    applyCommands(
+      p,
+      [
+        {
+          type: "update_room",
+          roomId: p.plan.rooms[0].id,
+          name: "must not save",
+        },
+        {
+          type: "upsert_opening",
+          opening: { ...o, width: 1600, doorStyle: "single" },
+        },
+      ],
+      "agent",
+    ),
+  );
+  assert.deepEqual(p, before);
+  const changed = applyCommands(
+    p,
+    [
+      {
+        type: "upsert_opening",
+        opening: { ...o, width: 1600, doorStyle: "double" },
+      },
+    ],
+    "agent",
+  );
+  assert.equal(changed.plan.openings.find((x) => x.id === o.id)!.width, 1600);
+});
+test("legacy wide doors render as multiple sliding leaves without changing their stored width", () => {
+  const o = {
+    ...fixture().plan.openings.find((o) => o.id === "entry")!,
+    width: 2200,
+  };
+  assert.equal(doorStyle(o), "sliding");
+  assert.equal(doorLeafCount(o), 2);
+  assert.equal(doorLeafCount({ ...o, width: 3600 }), 3);
+  assert.equal(doorStyle({ ...o, width: 900 }), "single");
+  assert.equal(doorLeafCount({ ...o, doorStyle: "double" }), 2);
+  assert.equal(doorLeafCount({ ...o, doorStyle: "opening" }), 0);
+  assert.equal(o.width, 2200);
 });
 test("bearing walls are protected; agent cannot reclassify or use user undo", () => {
   denied({ type: "remove_wall", wallId: "bedroom_wall" }, "BEARING_LOCKED");
@@ -260,4 +450,32 @@ test("invalid geometry rejects duplicate IDs and self-intersecting boundaries", 
     [16000, 0],
   ];
   assert.throws(() => validatePlan(p));
+});
+
+test("manual opening placement uses the free wall interval and never overlaps adjacent openings", () => {
+  const p = fixture(),
+    wall = p.plan.walls.find((w) => w.id === "middle")!;
+  const placed = fitOpening(wall, p.plan.openings, 5700, "door")!;
+  assert.equal(placed.width, 900);
+  assert.ok(placed.offset + placed.width <= 5900);
+  assert.equal(fitOpening(wall, p.plan.openings, 6200, "door"), null);
+  const smallWall = {
+    ...wall,
+    a: [0, 0] as [number, number],
+    b: [650, 0] as [number, number],
+    height: 500,
+  };
+  assert.deepEqual(fitOpening(smallWall, [], 600, "door"), {
+    offset: 0,
+    width: 650,
+    height: 500,
+    sill: 0,
+    swing: "left",
+  });
+  assert.equal(
+    fitOpening({ ...smallWall, b: [190, 0] }, [], 100, "door"),
+    null,
+  );
+  const window = fitOpening(smallWall, [], 100, "window")!;
+  assert.ok(window.sill + window.height <= smallWall.height);
 });

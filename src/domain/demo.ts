@@ -112,6 +112,7 @@ export function demoPlan(): Plan {
         id: "kitchen_door",
         wallId: "kitchen_wall",
         kind: "door",
+        doorStyle: "sliding",
         offset: 1200,
         width: 1500,
         height: 2200,

@@ -28,10 +28,19 @@ export const openingSchema = z.object({
   wallId: id,
   kind: z.enum(["door", "window"]),
   offset: finite.nonnegative(),
-  width: positive.min(200).max(6000),
+  width: positive
+    .min(200)
+    .max(6000)
+    .describe("洞口总宽 mm：根据原图尺寸或可靠比例计算；不等于单扇门宽度。"),
   height: positive.min(200).max(4000).default(2100),
   sill: finite.min(0).max(3000).default(0),
   swing: z.enum(["left", "right"]).default("left"),
+  doorStyle: z
+    .enum(["single", "double", "sliding", "opening"])
+    .optional()
+    .describe(
+      "门洞类型：single 单扇平开、double 双扇平开、sliding 推拉、opening 无门扇洞口。width 是洞口总宽，不是单扇宽。宽门洞必须根据原图明确类型。",
+    ),
 });
 export const furnitureSchema = z.object({
   id,
