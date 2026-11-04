@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Furniture, Plan, Point, Wall } from "@/domain/schema";
 import {
   along,
@@ -16,6 +16,7 @@ import {
 } from "@/domain/geometry";
 import { materials } from "@/domain/schema";
 import { FurnitureShape } from "./FurnitureShape";
+import { drawingPoint } from "@/domain/canvas-interaction";
 import { doorStyle, doorLeafCount, getOpeningType } from "@/domain/openings";
 
 export type Selection = {
@@ -32,6 +33,7 @@ export type Layers = {
   source: boolean;
 };
 type Props = {
+  keyboardEnabled?: boolean;
   plan: Plan;
   selection: Selection;
   onSelect: (s: Selection) => void;
@@ -46,6 +48,7 @@ type Props = {
   onDropItem: (type: string, p: Point) => void;
 };
 export function PlanCanvas({
+  keyboardEnabled = true,
   plan,
   selection,
   onSelect,
@@ -61,12 +64,131 @@ export function PlanCanvas({
 }: Props) {
   const ref = useRef<SVGSVGElement>(null),
     drag = useRef<{ f: Furniture; start: Point; original: Point } | null>(null),
-    panStart = useRef<{ p: Point; offset: Point } | null>(null);
+    panStart = useRef<{ p: Point; offset: Point } | null>(null),
+    panOffset = useRef<Point>([0, 0]),
+    spaceDown = useRef(false),
+    pointerInside = useRef(false),
+    activePointer = useRef<number | null>(null),
+    lastPointer = useRef<Point>([0, 0]),
+    suppressClick = useRef(false);
   const [pan, setPan] = useState<Point>([0, 0]),
     [ghost, setGhost] = useState<Furniture | null>(null),
     [start, setStart] = useState<Point | null>(null),
     [cursor, setCursor] = useState<Point | null>(null),
-    [measure, setMeasure] = useState<[Point, Point] | null>(null);
+    [measure, setMeasure] = useState<[Point, Point] | null>(null),
+    [spaceHeld, setSpaceHeld] = useState(false),
+    [shiftHeld, setShiftHeld] = useState(false),
+    [panning, setPanning] = useState(false);
+  panOffset.current = pan;
+  const resetGesture = useCallback(() => {
+    const id = activePointer.current;
+    activePointer.current = null;
+    drag.current = null;
+    panStart.current = null;
+    setGhost(null);
+    setStart(null);
+    setCursor(null);
+    setPanning(false);
+    if (id !== null && ref.current?.hasPointerCapture(id))
+      ref.current.releasePointerCapture(id);
+  }, []);
+  const beginPan = useCallback(
+    (pointer: Point) => {
+      suppressClick.current = true;
+      drag.current = null;
+      setGhost(null);
+      setStart(null);
+      setCursor(null);
+      panStart.current = { p: pointer, offset: panOffset.current };
+      setPanning(true);
+      if (activePointer.current !== null) {
+        try {
+          ref.current?.setPointerCapture(activePointer.current);
+        } catch {
+          resetGesture();
+        }
+      }
+    },
+    [resetGesture],
+  );
+  useEffect(() => {
+    const editable = (target: EventTarget | null) =>
+      target instanceof Element &&
+      !!target.closest(
+        'input,textarea,select,[contenteditable=""],[contenteditable="true"],[contenteditable="plaintext-only"]',
+      );
+    const clear = () => {
+      spaceDown.current = false;
+      setSpaceHeld(false);
+      setShiftHeld(false);
+      resetGesture();
+    };
+    const down = (e: KeyboardEvent) => {
+      if (!keyboardEnabled || e.isComposing || editable(e.target)) return;
+      const active =
+        pointerInside.current ||
+        activePointer.current !== null ||
+        !!ref.current?.contains(document.activeElement);
+      if (!active) return;
+      if (e.key === "Shift") setShiftHeld(true);
+      if (e.key === "Escape") resetGesture();
+      if (e.code !== "Space" || e.ctrlKey || e.metaKey || e.altKey) return;
+      const control =
+        e.target instanceof Element
+          ? e.target.closest('button,a,[role="button"]')
+          : null;
+      if (
+        control &&
+        !ref.current?.contains(control) &&
+        !control.closest(".canvas-panel")
+      )
+        return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (spaceDown.current) return;
+      spaceDown.current = true;
+      setSpaceHeld(true);
+      if (activePointer.current !== null && !panStart.current)
+        beginPan(lastPointer.current);
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.code === "Space") {
+        if (spaceDown.current) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        spaceDown.current = false;
+        setSpaceHeld(false);
+      }
+      if (e.key === "Shift") setShiftHeld(e.shiftKey);
+    };
+    const visibility = () => {
+      if (document.hidden) clear();
+    };
+    const focus = (e: FocusEvent) => {
+      if (editable(e.target)) clear();
+    };
+    const endOutside = (e: PointerEvent) => {
+      if (activePointer.current === e.pointerId) resetGesture();
+    };
+    window.addEventListener("keydown", down, true);
+    window.addEventListener("keyup", up, true);
+    window.addEventListener("blur", clear);
+    window.addEventListener("pointerup", endOutside);
+    window.addEventListener("pointercancel", endOutside);
+    document.addEventListener("visibilitychange", visibility);
+    document.addEventListener("focusin", focus);
+    if (!keyboardEnabled) clear();
+    return () => {
+      window.removeEventListener("keydown", down, true);
+      window.removeEventListener("keyup", up, true);
+      window.removeEventListener("blur", clear);
+      window.removeEventListener("pointerup", endOutside);
+      window.removeEventListener("pointercancel", endOutside);
+      document.removeEventListener("visibilitychange", visibility);
+      document.removeEventListener("focusin", focus);
+    };
+  }, [keyboardEnabled, beginPan, resetGesture]);
   const footprints = useMemo(() => wallFootprints(plan.walls), [plan.walls]);
   const b = bounds(plan),
     padding = 1000,
@@ -86,25 +208,15 @@ export function PlanCanvas({
     const q = p.matrixTransform(svg.getScreenCTM()!.inverse());
     return [q.x, q.y];
   };
-  const snap = (p: Point, origin?: Point, shift = false): Point => {
-    let q: Point = [Math.round(p[0] / 10) * 10, Math.round(p[1] / 10) * 10];
-    const ends = plan.walls.flatMap((w) => [w.a, w.b]);
-    const end = ends.find((e) => length(e, q) < 100 / zoom);
-    if (end) q = [...end];
-    if (origin && shift)
-      q =
-        Math.abs(q[0] - origin[0]) > Math.abs(q[1] - origin[1])
-          ? [q[0], origin[1]]
-          : [origin[0], q[1]];
-    return q;
-  };
-  const previewWall =
-    start && cursor && tool === "wall" && length(start, cursor) >= 100
+  const snap = (p: Point, origin: Point | null = null, shift = false) =>
+    drawingPoint(p, origin, shift, plan.walls, zoom);
+  const draftWall = (end: Point) =>
+    start && tool === "wall" && length(start, end) >= 100
       ? connectWallEndpoints(
           {
             id: "wall_preview",
             a: start,
-            b: cursor,
+            b: end,
             thickness: 120,
             height: 2800,
             kind: "partition",
@@ -114,20 +226,18 @@ export function PlanCanvas({
           80 / zoom,
         )
       : null;
+  const drawEnd = start && cursor ? snap(cursor, start, shiftHeld) : null;
+  const previewWall = drawEnd ? draftWall(drawEnd) : null;
   const previewConflict = previewWall
     ? overlappingWall(previewWall, plan.walls)
     : null;
   const pointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
     if (e.button !== 0 && e.button !== 1) return;
-    if (tool === "pan" || e.button === 1) {
-      panStart.current = { p: [e.clientX, e.clientY], offset: pan };
-      ref.current?.setPointerCapture(e.pointerId);
-      return;
-    }
     const p = snap(point(e));
     if (tool === "wall" || tool === "measure") {
       setStart(p);
-      setCursor(p);
+      setCursor(point(e));
+      setShiftHeld(e.shiftKey);
       ref.current?.setPointerCapture(e.pointerId);
     } else if (
       e.target === e.currentTarget ||
@@ -136,6 +246,8 @@ export function PlanCanvas({
       onSelect(null);
   };
   const move = (e: React.PointerEvent<SVGSVGElement>) => {
+    lastPointer.current = [e.clientX, e.clientY];
+    setShiftHeld(e.shiftKey);
     if (panStart.current) {
       const rect = ref.current!.getBoundingClientRect(),
         ratio = Math.max(viewW / rect.width, viewH / rect.height);
@@ -187,24 +299,26 @@ export function PlanCanvas({
       setGhost(f);
       return;
     }
-    if (start) setCursor(snap(point(e), start, e.shiftKey));
+    if (start) setCursor(point(e));
   };
   const up = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (panStart.current) {
+      resetGesture();
+      return;
+    }
     if (drag.current) {
       if (ghost && length(ghost.position, drag.current.original) > 1)
         onMove(ghost);
       drag.current = null;
       setGhost(null);
     }
-    if (start && cursor && length(start, cursor) > 100) {
-      if (tool === "wall" && previewWall) onWall(previewWall.a, previewWall.b);
-      if (tool === "measure") setMeasure([start, cursor]);
+    const end = start ? snap(point(e), start, e.shiftKey) : null;
+    if (start && end && length(start, end) > 100) {
+      const finalWall = draftWall(end);
+      if (tool === "wall" && finalWall) onWall(finalWall.a, finalWall.b);
+      if (tool === "measure") setMeasure([start, end]);
     }
-    setStart(null);
-    setCursor(null);
-    panStart.current = null;
-    if (ref.current?.hasPointerCapture(e.pointerId))
-      ref.current.releasePointerCapture(e.pointerId);
+    resetGesture();
   };
   const wallClick = (e: React.MouseEvent, w: Wall) => {
     e.stopPropagation();
@@ -247,7 +361,37 @@ export function PlanCanvas({
   return (
     <svg
       ref={ref}
-      className={`plan-canvas tool-${tool}`}
+      className={`plan-canvas tool-${tool} ${spaceHeld ? "space-pan" : ""} ${panning ? "is-panning" : ""}`}
+      tabIndex={0}
+      onPointerEnter={() => {
+        pointerInside.current = true;
+      }}
+      onPointerLeave={() => {
+        pointerInside.current = false;
+      }}
+      onPointerDownCapture={(e) => {
+        if (e.button !== 0 && e.button !== 1) return;
+        activePointer.current = e.pointerId;
+        lastPointer.current = [e.clientX, e.clientY];
+        suppressClick.current = false;
+        ref.current?.focus({ preventScroll: true });
+        if (
+          tool === "pan" ||
+          (keyboardEnabled && spaceDown.current) ||
+          e.button === 1
+        ) {
+          e.preventDefault();
+          e.stopPropagation();
+          beginPan(lastPointer.current);
+        }
+      }}
+      onClickCapture={(e) => {
+        if (suppressClick.current || spaceDown.current || tool === "pan") {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }}
+      onLostPointerCapture={resetGesture}
       data-plan-export="true"
       role="img"
       aria-label="可编辑的 2D 户型图"
@@ -255,13 +399,7 @@ export function PlanCanvas({
       onPointerDown={pointerDown}
       onPointerMove={move}
       onPointerUp={up}
-      onPointerCancel={() => {
-        drag.current = null;
-        panStart.current = null;
-        setGhost(null);
-        setStart(null);
-        setCursor(null);
-      }}
+      onPointerCancel={resetGesture}
       onWheel={(e) => {
         onZoom(
           Math.max(0.45, Math.min(3, zoom * (e.deltaY > 0 ? 0.92 : 1.08))),
@@ -597,7 +735,7 @@ export function PlanCanvas({
       )}
       {measure && renderMeasure(...measure, "saved")}
       {previewWall ? (
-        <g pointerEvents="none">
+        <g pointerEvents="none" data-wall-preview="true">
           <polygon
             points={wallOutline(previewWall, plan.walls)
               .map((p) => p.join(","))
@@ -610,7 +748,7 @@ export function PlanCanvas({
           {renderMeasure(previewWall.a, previewWall.b, "live")}
         </g>
       ) : (
-        start && cursor && renderMeasure(start, cursor, "live")
+        start && drawEnd && renderMeasure(start, drawEnd, "live")
       )}
       {!plan.walls.length && !sourceUrl && (
         <text

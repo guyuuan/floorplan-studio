@@ -696,6 +696,7 @@ export default function Studio() {
         onWall: addWall,
         onOpening: addOpening,
         onDropItem: addFurniture,
+        keyboardEnabled: !modal && !walk,
       }
     : null;
   const actualTool =
@@ -1271,7 +1272,7 @@ export default function Studio() {
                 <span>
                   {mode === "3d"
                     ? "拖动旋转视角 · 滚轮缩放 · 选中并拖动家具"
-                    : actualTool}
+                    : `${actualTool} · 按住空格拖动画布`}
                 </span>
                 <div>
                   <IconButton
@@ -2157,6 +2158,10 @@ export default function Studio() {
                 <div className="shortcut-grid">
                   <span>V / H</span>
                   <span>选择 / 平移</span>
+                  <span>空格 + 拖动</span>
+                  <span>临时平移画布</span>
+                  <span>Shift + 绘墙</span>
+                  <span>按方向保持水平 / 垂直</span>
                   <span>W / D / O</span>
                   <span>新墙 / 门洞 / 窗洞</span>
                   <span>M / T</span>

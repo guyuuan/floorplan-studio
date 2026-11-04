@@ -833,6 +833,14 @@ h3 {
 .wall-object:hover {
   filter: brightness(1.08);
 }
+.plan-canvas.space-pan,
+.plan-canvas.space-pan * {
+  cursor: grab;
+}
+.plan-canvas.is-panning,
+.plan-canvas.is-panning * {
+  cursor: grabbing;
+}
 .view-label {
   position: absolute;
   left: 19px;
