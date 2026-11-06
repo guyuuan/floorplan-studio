@@ -2538,7 +2538,11 @@ function OpeningInspector({
           应用洞口设置
         </button>
       </form>
-      <button className="button danger full" disabled={busy} onClick={onDelete}>
+      <button
+        className="button danger full opening-delete"
+        disabled={busy}
+        onClick={onDelete}
+      >
         <Trash2 size={14} />
         删除洞口并补回墙体
       </button>

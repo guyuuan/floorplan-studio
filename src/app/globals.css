@@ -1172,6 +1172,9 @@ h3 {
   overflow: auto;
   flex: 1;
 }
+.opening-delete {
+  margin-block-start: 12px;
+}
 .intro-card {
   background: #f2f5e8;
   border: 1px solid #e8eddd;
