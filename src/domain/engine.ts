@@ -309,37 +309,37 @@ export function applyCommands(
           : [];
         for (const k of ["a", "b", "thickness", "height"] as const)
           if (c[k] !== undefined) Object.assign(w, { [k]: c[k] });
-        const requestedStart = [...w.a] as [number, number],
-          requestedLength = wallLength(w);
-        const direction = requestedLength
-          ? [
-              (w.b[0] - w.a[0]) / requestedLength,
-              (w.b[1] - w.a[1]) / requestedLength,
-            ]
-          : [0, 0];
+        const requestedLength = wallLength(w);
         if (requestedLength < 100)
           fail("WALL_TOO_SHORT", "墙体长度不能小于 100 mm。");
-        const connected = connectWallEndpoints(w, p.plan.walls);
-        if (
-          thicknessChanged &&
-          sameWallEndpoint(w.a, previous.a) &&
-          sameWallEndpoint(w.b, previous.b)
-        ) {
-          const lateralShift =
-            (connected.a[0] - w.a[0]) * -direction[1] +
-            (connected.a[1] - w.a[1]) * direction[0];
-          if (Math.abs(lateralShift) > 0.05)
+        const endpointsChanged =
+          w.a.some((value, i) => value !== previous.a[i]) ||
+          w.b.some((value, i) => value !== previous.b[i]);
+        // Manual coordinate edits are exact. Agent edits and thickness-only
+        // adjustments retain automatic fitting to receiving walls.
+        const fitEndpoints =
+          actor === "agent" || (thicknessChanged && !endpointsChanged);
+        if (fitEndpoints) {
+          const connected = connectWallEndpoints(w, p.plan.walls),
+            dx = (w.b[0] - w.a[0]) / requestedLength,
+            dy = (w.b[1] - w.a[1]) / requestedLength,
+            shiftX = connected.a[0] - w.a[0],
+            shiftY = connected.a[1] - w.a[1];
+          if (
+            thicknessChanged &&
+            sameWallEndpoint(w.a, previous.a) &&
+            sameWallEndpoint(w.b, previous.b) &&
+            Math.abs(-shiftX * dy + shiftY * dx) > 0.05
+          )
             fail(
               "WALL_JOIN_CONFLICT",
               "此转角无法在保持墙体中心线位置的同时改变厚度，请先调整转角连接。",
             );
+          const shift = shiftX * dx + shiftY * dy;
+          Object.assign(w, connected);
+          for (const opening of p.plan.openings)
+            if (opening.wallId === w.id) opening.offset -= shift;
         }
-        const shift =
-          (connected.a[0] - requestedStart[0]) * direction[0] +
-          (connected.a[1] - requestedStart[1]) * direction[1];
-        Object.assign(w, connected);
-        for (const opening of p.plan.openings)
-          if (opening.wallId === w.id) opening.offset -= shift;
         const affected = new Set([w.id]);
         for (const attachment of attachments) {
           const branch = wallById(p, attachment.wallId);
@@ -402,14 +402,15 @@ export function applyCommands(
                 );
             }
           }
-        for (const id of affected) {
-          const conflict = overlappingWall(wallById(p, id), p.plan.walls);
-          if (conflict)
-            fail(
-              "WALL_INTERSECTION",
-              `调整后与墙体 ${conflict.id} 相交或重叠，请调整端点或厚度。`,
-            );
-        }
+        if (fitEndpoints || endpointsChanged)
+          for (const id of affected) {
+            const conflict = overlappingWall(wallById(p, id), p.plan.walls);
+            if (conflict)
+              fail(
+                "WALL_INTERSECTION",
+                `调整后与墙体 ${conflict.id} 相交或重叠，请调整端点或厚度。`,
+              );
+          }
         geometryChanged = true;
         break;
       }

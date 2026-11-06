@@ -209,6 +209,73 @@ test("adding a wall stores fitted endpoints, retains host protection and support
     original.plan,
   );
 });
+test("manual wall edits keep exact Y coordinates at the ends of intersecting walls", () => {
+  const left = {
+      ...host(),
+      a: [1000, 2000] as Point,
+      b: [1000, 4500] as Point,
+    },
+    right = wall("right", [5000, 2000], [5000, 4500], 240),
+    original = project([
+      left,
+      right,
+      wall("edited", [1120, 2200], [4880, 2200]),
+    ]);
+  const a: Point = [1120, 2020.25],
+    b: Point = [4880, 2020.25];
+  const command = { type: "update_wall", wallId: "edited", a, b };
+  const manual = applyCommands(original, [command], "user"),
+    edited = manual.plan.walls.find((w) => w.id === "edited")!;
+  assert.deepEqual([edited.a, edited.b], [a, b]);
+  assert.deepEqual(
+    manual.plan.walls.slice(0, 2),
+    original.plan.walls.slice(0, 2),
+  );
+  const adjusted = applyCommands(original, [command], "agent").plan.walls[2];
+  assert.deepEqual(
+    [adjusted.a, adjusted.b],
+    [
+      [1120, 2060],
+      [4880, 2060],
+    ],
+  );
+
+  const heightOnly = applyCommands(
+    manual,
+    [{ ...command, height: 2600 }],
+    "user",
+  ).plan.walls[2];
+  assert.deepEqual(
+    [heightOnly.a, heightOnly.b, heightOnly.height],
+    [a, b, 2600],
+  );
+});
+
+test("a manual endpoint can leave a gap, but an overlapping endpoint is rejected without moving either wall", () => {
+  const original = project([
+    host(),
+    wall("branch", [3000, 3120], [3000, 5000]),
+  ]);
+  const moved = applyCommands(
+    original,
+    [{ type: "update_wall", wallId: "branch", a: [3000, 3140] }],
+    "user",
+  );
+  assert.deepEqual(moved.plan.walls[1].a, [3000, 3140]);
+  assert.deepEqual(moved.plan.walls[1].b, original.plan.walls[1].b);
+  const before = structuredClone(original);
+  assert.throws(
+    () =>
+      applyCommands(
+        original,
+        [{ type: "update_wall", wallId: "branch", a: [3000, 3100] }],
+        "user",
+      ),
+    (e) => e instanceof RuleError && e.code === "WALL_INTERSECTION",
+  );
+  assert.deepEqual(original, before);
+});
+
 test("fitting an edited wall keeps existing openings at the requested world position", () => {
   const original = project([
     host(),
