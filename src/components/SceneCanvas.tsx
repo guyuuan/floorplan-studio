@@ -403,7 +403,7 @@ export function SceneCanvas({
         camera.position.set(x + 4, 7, z + 5);
       }
     }
-    orbit.update();
+    if (!walk) orbit.update();
     scene.add(
       new THREE.HemisphereLight(
         "#f9f7e9",
@@ -706,6 +706,7 @@ export function SceneCanvas({
           }
           const setOpen = (open: boolean) =>
             leaves.forEach((leaf) => {
+              leaf.group.visible = !walk || !open || style === "sliding";
               leaf.group.position.x = open ? leaf.openX : leaf.closedX;
               leaf.group.rotation.y = open ? leaf.angle : 0;
             });
