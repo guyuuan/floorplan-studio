@@ -1,6 +1,8 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  doorInwardSide,
+  doorStyle,
   doorStyleNames,
   fitOpening,
   getOpeningType,
@@ -124,6 +126,7 @@ function Field({
   min,
   max,
   disabled = false,
+  onValueChange,
 }: {
   name: string;
   label: string;
@@ -132,6 +135,7 @@ function Field({
   min?: number;
   max?: number;
   disabled?: boolean;
+  onValueChange?: (value: string) => void;
 }) {
   return (
     <label className="field">
@@ -144,6 +148,7 @@ function Field({
         min={min}
         max={max}
         disabled={disabled}
+        onChange={onValueChange && ((e) => onValueChange(e.target.value))}
         required
       />
     </label>
@@ -1912,6 +1917,7 @@ export default function Studio({
                   <OpeningInspector
                     key={`${selectedOpening.id}-${project.revision}`}
                     opening={selectedOpening}
+                    boundary={project.plan.boundary}
                     walls={project.plan.walls}
                     wall={project.plan.walls.find(
                       (w) => w.id === selectedOpening.wallId,
@@ -2343,6 +2349,7 @@ export default function Studio({
 }
 function OpeningInspector({
   opening: o,
+  boundary,
   wall,
   walls,
   busy,
@@ -2350,6 +2357,7 @@ function OpeningInspector({
   onDelete,
 }: {
   opening: Opening;
+  boundary: Point[];
   wall: Wall;
   walls: Wall[];
   busy: boolean;
@@ -2358,6 +2366,15 @@ function OpeningInspector({
 }) {
   const savedType = getOpeningType(o);
   const [type, setType] = useState<OpeningType>(savedType);
+  const [style, setStyle] = useState<Opening["doorStyle"]>(
+    savedType === "door" ? o.doorStyle : undefined,
+  );
+  const [width, setWidth] = useState(o.width);
+  const resolvedStyle = doorStyle({ doorStyle: style, width });
+  const hinged = resolvedStyle === "single" || resolvedStyle === "double";
+  const initialDirection =
+    o.swingDirection ??
+    (doorInwardSide(o, wall, boundary) === 1 ? "inward" : "outward");
   return (
     <div>
       <div className="object-title">
@@ -2410,8 +2427,9 @@ function OpeningInspector({
                   height: Number(d.get("height")),
                   sill: Number(d.get("sill")),
                   swing: (d.get("swing") ?? o.swing) as Opening["swing"],
-                  doorStyle: (d.get("doorStyle") ||
-                    undefined) as Opening["doorStyle"],
+                  swingDirection: (d.get("swingDirection") ??
+                    o.swingDirection) as Opening["swingDirection"],
+                  doorStyle: style,
                 },
                 type,
               ),
@@ -2448,7 +2466,13 @@ function OpeningInspector({
             value={Math.round(o.offset)}
             min={0}
           />
-          <Field name="width" label="洞口宽度 mm" value={o.width} min={200} />
+          <Field
+            name="width"
+            label="洞口宽度 mm"
+            value={o.width}
+            min={200}
+            onValueChange={(value) => setWidth(Number(value))}
+          />
           <Field name="height" label="洞口高度 mm" value={o.height} min={200} />
           {type !== "passage" && (
             <Field name="sill" label="底部标高 mm" value={o.sill} min={0} />
@@ -2460,8 +2484,11 @@ function OpeningInspector({
               <span>门型</span>
               <select
                 name="doorStyle"
-                defaultValue={
-                  o.doorStyle === "opening" ? "" : (o.doorStyle ?? "")
+                value={style ?? ""}
+                onChange={(e) =>
+                  setStyle(
+                    (e.target.value || undefined) as Opening["doorStyle"],
+                  )
                 }
               >
                 <option value="">按宽度显示：≤1200 mm 单扇，宽洞口推拉</option>
@@ -2476,11 +2503,31 @@ function OpeningInspector({
             </label>
             <label className="field">
               <span>平开门铰链方向</span>
-              <select name="swing" defaultValue={o.swing}>
+              <select
+                name="swing"
+                defaultValue={o.swing}
+                disabled={resolvedStyle !== "single"}
+              >
                 <option value="left">左侧铰链</option>
                 <option value="right">右侧铰链</option>
               </select>
             </label>
+            <label className="field">
+              <span>平开门开启方向</span>
+              <select
+                name="swingDirection"
+                defaultValue={initialDirection}
+                disabled={!hinged}
+              >
+                <option value="inward">内开</option>
+                <option value="outward">外开</option>
+              </select>
+            </label>
+            {hinged && (
+              <p className="quiet-note">
+                外墙门按建筑轮廓判断内外。室内门沿墙起点朝终点看，右侧为内开。
+              </p>
+            )}
           </>
         ) : type === "passage" ? (
           <p className="quiet-note">

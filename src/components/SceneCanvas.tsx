@@ -16,7 +16,12 @@ import {
 } from "@/domain/geometry";
 import { materials, type Furniture, type Plan } from "@/domain/schema";
 import type { Selection } from "./PlanCanvas";
-import { doorStyle, doorLeafCount } from "@/domain/openings";
+import {
+  doorStyle,
+  doorLeafCount,
+  doorSwingSide,
+  hingedDoorLeaves,
+} from "@/domain/openings";
 
 function furnitureModel(f: Furniture) {
   const g = new THREE.Group(),
@@ -656,8 +661,10 @@ export function SceneCanvas({
         } else if (o.kind === "door" && oh > 0 && doorStyle(o) !== "opening") {
           const door = new THREE.Group(),
             style = doorStyle(o),
+            sliding = style === "sliding",
             count = doorLeafCount(o),
-            width = (z - a) / count,
+            hingedLeaves = hingedDoorLeaves(o),
+            swingSide = doorSwingSide(o, w, plan.boundary),
             leaves: {
               group: THREE.Group;
               closedX: number;
@@ -667,22 +674,24 @@ export function SceneCanvas({
           door.position.set(a, o.sill / 1000, 0);
           for (let i = 0; i < count; i++) {
             const leaf = new THREE.Group(),
-              right = count === 2 ? i === 1 : o.swing === "right",
-              sliding = style === "sliding",
-              closedX = sliding ? (i + 0.5) * width : right ? z - a : 0,
+              hinged = hingedLeaves[i],
+              width = (hinged?.width ?? o.width / count) / 1000,
+              closedX = hinged ? hinged.offset / 1000 : (i + 0.5) * width,
               openX = sliding
                 ? i < count / 2
                   ? width * 0.15
                   : z - a - width * 0.15
                 : closedX,
-              angle = sliding ? 0 : right ? Math.PI * 0.35 : -Math.PI * 0.35;
+              angle = hinged
+                ? -(Math.PI / 2) * hinged.alongSign * swingSide
+                : 0;
             leaf.position.set(closedX, 0, sliding ? (i % 2) * 0.055 : 0);
             const panel = new THREE.Mesh(
               new THREE.BoxGeometry(width, oh, 0.045),
               sliding ? glass : doorMat,
             );
             panel.position.set(
-              sliding ? 0 : right ? -width / 2 : width / 2,
+              ((hinged?.alongSign ?? 0) * width) / 2,
               oh / 2,
               0,
             );

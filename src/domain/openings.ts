@@ -1,5 +1,5 @@
-import type { Opening, Wall } from "./schema";
-import { wallLength } from "./geometry";
+import type { Opening, Point, Wall } from "./schema";
+import { along, inside, wallLength } from "./geometry";
 
 // A conservative application heuristic, not a building-code limit.
 export const SINGLE_DOOR_WIDTH = 1200;
@@ -10,7 +10,9 @@ export const doorStyleNames = {
   opening: "过道（无门扇）",
 } as const;
 /** Legacy wide doors remain editable and render as sliding panels instead of one oversized swinging leaf. */
-export function doorStyle(opening: Opening): NonNullable<Opening["doorStyle"]> {
+export function doorStyle(
+  opening: Pick<Opening, "doorStyle" | "width">,
+): NonNullable<Opening["doorStyle"]> {
   return (
     opening.doorStyle ??
     (opening.width <= SINGLE_DOOR_WIDTH ? "single" : "sliding")
@@ -23,6 +25,45 @@ export function doorLeafCount(opening: Opening) {
   if (style === "sliding")
     return Math.max(2, Math.ceil(opening.width / SINGLE_DOOR_WIDTH));
   return 1;
+}
+
+/** Wall-local positive perpendicular is to the right when looking from a to b in plan view. */
+export function doorInwardSide(
+  opening: Opening,
+  wall: Wall,
+  boundary: Point[],
+) {
+  if (wall.kind !== "exterior" || boundary.length < 3) return 1;
+  const [x, y] = along(wall, opening.offset + opening.width / 2),
+    scale = (wall.thickness / 2 + 1) / wallLength(wall),
+    dx = (wall.a[1] - wall.b[1]) * scale,
+    dy = (wall.b[0] - wall.a[0]) * scale;
+  return !inside([x + dx, y + dy], boundary) &&
+    inside([x - dx, y - dy], boundary)
+    ? -1
+    : 1;
+}
+
+export function doorSwingSide(opening: Opening, wall: Wall, boundary: Point[]) {
+  if (!opening.swingDirection) return 1;
+  const inward = doorInwardSide(opening, wall, boundary);
+  return opening.swingDirection === "inward" ? inward : -inward;
+}
+
+/** Hinges and closed leaf directions in the opening's coordinate system. */
+export function hingedDoorLeaves(opening: Opening) {
+  const style = doorStyle(opening);
+  if (opening.kind !== "door" || (style !== "single" && style !== "double"))
+    return [];
+  const count = doorLeafCount(opening);
+  return Array.from({ length: count }, (_, i) => {
+    const right = count === 2 ? i === 1 : opening.swing === "right";
+    return {
+      offset: right ? opening.width : 0,
+      width: opening.width / count,
+      alongSign: right ? -1 : 1,
+    };
+  });
 }
 
 /** Fit a manually added opening to the free wall interval under the pointer. */

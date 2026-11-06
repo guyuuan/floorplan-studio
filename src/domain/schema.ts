@@ -35,6 +35,12 @@ export const openingSchema = z.object({
   height: positive.min(200).max(4000).default(2100),
   sill: finite.min(0).max(3000).default(0),
   swing: z.enum(["left", "right"]).default("left"),
+  swingDirection: z
+    .enum(["inward", "outward"])
+    .optional()
+    .describe(
+      "平开门开向。外墙门按建筑轮廓区分内外；室内门沿墙起点朝终点看，右侧为 inward。省略时保留旧版开向（朝该墙右侧）。",
+    ),
   doorStyle: z
     .enum(["single", "double", "sliding", "opening"])
     .optional()

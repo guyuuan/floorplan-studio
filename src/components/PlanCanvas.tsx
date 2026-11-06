@@ -17,7 +17,13 @@ import {
 import { materials } from "@/domain/schema";
 import { FurnitureShape } from "./FurnitureShape";
 import { drawingPoint } from "@/domain/canvas-interaction";
-import { doorStyle, doorLeafCount, getOpeningType } from "@/domain/openings";
+import {
+  doorStyle,
+  doorLeafCount,
+  doorSwingSide,
+  getOpeningType,
+  hingedDoorLeaves,
+} from "@/domain/openings";
 
 export type Selection = {
   kind: "wall" | "opening" | "furniture" | "room";
@@ -595,7 +601,8 @@ export function PlanCanvas({
           selected = selection?.kind === "opening" && selection.id === o.id,
           t = w.thickness,
           style = doorStyle(o),
-          count = doorLeafCount(o);
+          count = doorLeafCount(o),
+          swingSide = doorSwingSide(o, w, plan.boundary);
         return (
           <g
             key={o.id}
@@ -647,27 +654,21 @@ export function PlanCanvas({
                   />
                 ))}
               </g>
-            ) : style !== "opening" ? (
-              Array.from({ length: count }, (_, i) => {
-                const width = o.width / count,
-                  right = count === 2 ? i === 1 : o.swing === "right";
-                return (
-                  <g
-                    key={i}
-                    transform={
-                      right ? `translate(${o.width},0) scale(-1,1)` : undefined
-                    }
-                  >
-                    <path
-                      d={`M0,0V${width} A${width},${width} 0 0 0 ${width},0`}
-                      fill="none"
-                      stroke={selected ? "#47785d" : "#829081"}
-                      strokeWidth={18}
-                    />
-                  </g>
-                );
-              })
-            ) : null}
+            ) : (
+              hingedDoorLeaves(o).map(({ offset, width, alongSign }) => (
+                <g
+                  key={offset}
+                  transform={`translate(${offset},0) scale(${alongSign},${swingSide})`}
+                >
+                  <path
+                    d={`M0,0V${width} A${width},${width} 0 0 0 ${width},0`}
+                    fill="none"
+                    stroke={selected ? "#47785d" : "#829081"}
+                    strokeWidth={18}
+                  />
+                </g>
+              ))
+            )}
           </g>
         );
       })}
